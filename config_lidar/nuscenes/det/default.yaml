@@ -1,0 +1,12 @@
+model:
+  type: BEVFusion
+  encoders: null
+  fuser: null
+  heads:
+    map: null
+
+lr_config:
+  policy: cyclic
+
+momentum_config:
+  policy: cyclic

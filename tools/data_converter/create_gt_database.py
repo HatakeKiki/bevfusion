@@ -205,15 +205,15 @@ def create_groundtruth_database(
                     dict(
                         type="LoadPointsFromFile",
                         coord_type="LIDAR",
-                        load_dim=16,
-                        use_dim=list(range(16)),
+                        load_dim=19,
+                        use_dim=list(range(19)),
                         load_augmented=load_augmented,
                     ),
                     dict(
                         type="LoadPointsFromMultiSweeps",
                         sweeps_num=10,
-                        load_dim=16,
-                        use_dim=list(range(16)),
+                        load_dim=19,
+                        use_dim=list(range(19)),
                         pad_empty_sweeps=True,
                         remove_close=True,
                         load_augmented=load_augmented,
@@ -251,10 +251,17 @@ def create_groundtruth_database(
 
     dataset = build_dataset(dataset_cfg)
 
-    if database_save_path is None:
-        database_save_path = osp.join(data_path, f"{info_prefix}_gt_database")
-    if db_info_save_path is None:
-        db_info_save_path = osp.join(data_path, f"{info_prefix}_dbinfos_train.pkl")
+    if load_augmented is None:
+        if database_save_path is None:
+            database_save_path = osp.join(data_path, f"{info_prefix}_gt_database")
+        if db_info_save_path is None:
+            db_info_save_path = osp.join(data_path, f"{info_prefix}_dbinfos.pkl")
+    else:
+        assert load_augmented in ['mvp', 'painted']
+        if database_save_path is None:
+            database_save_path = osp.join(data_path, f"{info_prefix}_gt_database_virtual")
+        if db_info_save_path is None:
+            db_info_save_path = osp.join(data_path, f"{info_prefix}_dbinfos_virtual.pkl")
     mmcv.mkdir_or_exist(database_save_path)
     all_db_infos = dict()
     if with_mask:
@@ -285,7 +292,10 @@ def create_groundtruth_database(
             difficulty = annos["difficulty"]
 
         num_obj = gt_boxes_3d.shape[0]
-        point_indices = box_np_ops.points_in_rbbox(points, gt_boxes_3d)
+        import copy
+        gt_boxes_3d_bottom = copy.deepcopy(gt_boxes_3d)
+        gt_boxes_3d_bottom[:, 2] -= gt_boxes_3d_bottom[:, 5]/2
+        point_indices = box_np_ops.points_in_rbbox(points, gt_boxes_3d_bottom)
 
         if with_mask:
             # prepare masks
@@ -320,11 +330,22 @@ def create_groundtruth_database(
         for i in range(num_obj):
             filename = f"{image_idx}_{names[i]}_{i}.bin"
             abs_filepath = osp.join(database_save_path, filename)
-            rel_filepath = osp.join(f"{info_prefix}_gt_database", filename)
+            if load_augmented is None:
+                rel_filepath = osp.join(f"{info_prefix}_gt_database", filename)
+            else:
+                rel_filepath = osp.join(f"{info_prefix}_gt_database_virtual", filename)
+            # rel_filepath = osp.join(f"{info_prefix}_gt_database", filename)
 
             # save point clouds and image patches for each object
             gt_points = points[point_indices[:, i]]
             gt_points[:, :3] -= gt_boxes_3d[i, :3]
+            '''
+            print('===================')
+            print(gt_boxes_3d[i])
+            print(gt_boxes_3d_bottom[i])
+            print(gt_points.shape)
+            print(points.shape)
+            '''
 
             if with_mask:
                 if object_masks[i].sum() == 0 or not valid_inds[i]:

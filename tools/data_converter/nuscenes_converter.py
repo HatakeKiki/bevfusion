@@ -12,6 +12,7 @@ from shapely.geometry import MultiPoint, box
 
 from mmdet3d.core.bbox.box_np_ops import points_cam2img
 from mmdet3d.datasets import NuScenesDataset
+from .nuscenes_common_det3d import find_closest_camera_tokens
 
 nus_categories = (
     "car",
@@ -219,6 +220,55 @@ def _fill_trainval_infos(nusc, train_scenes, val_scenes, test=False, max_sweeps=
             "CAM_BACK_LEFT",
             "CAM_BACK_RIGHT",
         ]
+        ## used for mvp generation
+        '''
+        # cam_datas = {} 
+        for cam in camera_types:
+            cam_token = sample["data"][cam]
+            # cam_data = nusc.get('sample_data', cam_token)
+            # cam_datas[cam] = cam_data
+            cam_path, _, camera_intrinsics = nusc.get_sample_data(cam_token)
+            cam_info = obtain_sensor2top(
+                nusc, cam_token, l2e_t, l2e_r_mat, e2g_t, e2g_r_mat, cam
+            )
+            cam_info.update(camera_intrinsics=camera_intrinsics)
+            info["cams"].update({cam: cam_info})
+
+        # obtain sweeps for a single key-frame
+        sd_rec = nusc.get("sample_data", sample["data"]["LIDAR_TOP"])
+        sweeps = []
+        while len(sweeps) < max_sweeps:
+            if not sd_rec["prev"] == "":
+                sweep = obtain_sensor2top(
+                    nusc, sd_rec["prev"], l2e_t, l2e_r_mat, e2g_t, e2g_r_mat, "lidar"
+                )
+
+                l2e_r_s = sweep["sensor2ego_rotation"]
+                l2e_t_s = sweep["sensor2ego_translation"]
+                e2g_r_s = sweep["ego2global_rotation"]
+                e2g_t_s = sweep["ego2global_translation"]
+                l2e_r_mat_s = Quaternion(l2e_r_s).rotation_matrix
+                e2g_r_mat_s = Quaternion(e2g_r_s).rotation_matrix
+
+                sd_rec = nusc.get("sample_data", sd_rec["prev"])
+                cam_data = find_closest_camera_tokens(nusc, sd_rec, ref_sample=sample)
+                
+                cams = {}
+                for cam in camera_types:
+                    cam_token = cam_data[cam]["token"]
+                    cam_path, _, camera_intrinsics = nusc.get_sample_data(cam_token)
+                    cam_info = obtain_sensor2top(nusc, cam_token, l2e_t_s, l2e_r_mat_s, e2g_t_s, e2g_r_mat_s, cam)
+                    cam_info.update(camera_intrinsics=camera_intrinsics)
+                    cams.update({cam: cam_info})
+                sweep.update({"cams": cams})
+
+                sweeps.append(sweep)
+                # sd_rec = nusc.get("sample_data", sd_rec["prev"])
+            else:
+                break
+        info["sweeps"] = sweeps
+        '''
+        # '''
         for cam in camera_types:
             cam_token = sample["data"][cam]
             cam_path, _, camera_intrinsics = nusc.get_sample_data(cam_token)
@@ -241,6 +291,7 @@ def _fill_trainval_infos(nusc, train_scenes, val_scenes, test=False, max_sweeps=
             else:
                 break
         info["sweeps"] = sweeps
+        # '''
         # obtain annotation
         if not test:
             annotations = [

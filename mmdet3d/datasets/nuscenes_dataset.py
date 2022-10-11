@@ -236,6 +236,7 @@ class NuScenesDataset(Custom3DDataset):
             data["lidar2image"] = []
             data["camera2ego"] = []
             data["camera_intrinsics"] = []
+            data["camera2lidar"] = []
 
             for _, camera_info in info["cams"].items():
                 data["image_paths"].append(camera_info["data_path"])
@@ -268,6 +269,13 @@ class NuScenesDataset(Custom3DDataset):
                 data["camera2ego"].append(camera2ego)
 
         # TODO (Haotian): test set submission.
+                # camera to lidar transform
+                camera2lidar = np.eye(4).astype(np.float32)
+                camera2lidar[:3, :3] = camera_info["sensor2lidar_rotation"]
+                camera2lidar[:3, 3] = camera_info["sensor2lidar_translation"]
+                data["camera2lidar"].append(camera2lidar)
+                
+        # if not self.test_mode:
         annos = self.get_ann_info(index)
         data["ann_info"] = annos
         
@@ -402,6 +410,7 @@ class NuScenesDataset(Custom3DDataset):
         logger=None,
         metric="bbox",
         result_name="pts_bbox",
+        range_eval=None,
     ):
         """Evaluation for a single model in nuScenes protocol.
 
@@ -432,6 +441,7 @@ class NuScenesDataset(Custom3DDataset):
             eval_set=eval_set_map[self.version],
             output_dir=output_dir,
             verbose=False,
+            range_eval=range_eval, 
         )
         nusc_eval.main(render_curves=False)
 
@@ -524,6 +534,7 @@ class NuScenesDataset(Custom3DDataset):
         metric="bbox",
         jsonfile_prefix=None,
         result_names=["pts_bbox"],
+        range_eval=None, 
         **kwargs,
     ):
         """Evaluation in nuScenes protocol.
@@ -550,10 +561,10 @@ class NuScenesDataset(Custom3DDataset):
             if isinstance(result_files, dict):
                 for name in result_names:
                     print("Evaluating bboxes of {}".format(name))
-                    ret_dict = self._evaluate_single(result_files[name])
+                    ret_dict = self._evaluate_single(result_files[name], range_eval=range_eval)
                 metrics.update(ret_dict)
             elif isinstance(result_files, str):
-                metrics.update(self._evaluate_single(result_files))
+                metrics.update(self._evaluate_single(result_files, range_eval=range_eval))
 
             if tmp_dir is not None:
                 tmp_dir.cleanup()

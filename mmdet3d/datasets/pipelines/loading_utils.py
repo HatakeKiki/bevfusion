@@ -8,10 +8,13 @@ __all__ = ["load_augmented_point_cloud", "reduce_LiDAR_beams"]
 
 def load_augmented_point_cloud(path, virtual=False, reduce_beams=32):
     # NOTE: following Tianwei's implementation, it is hard coded for nuScenes
+    # print('==============================')
+    # print(path)
     points = np.fromfile(path, dtype=np.float32).reshape(-1, 5)
     # NOTE: path definition different from Tianwei's implementation.
     tokens = path.split("/")
-    vp_dir = "_VIRTUAL" if reduce_beams == 32 else f"_VIRTUAL_{reduce_beams}BEAMS"
+    vp_dir = "_VIRTUAL" # if reduce_beams == 32 else f"_VIRTUAL_{reduce_beams}BEAMS"
+    wt_dir = "_VIRTUAL_WEIGHTS"
     seg_path = os.path.join(
         *tokens[:-3],
         "virtual_points",
@@ -19,38 +22,77 @@ def load_augmented_point_cloud(path, virtual=False, reduce_beams=32):
         tokens[-2] + vp_dir,
         tokens[-1] + ".pkl.npy",
     )
-    assert os.path.exists(seg_path)
-    data_dict = np.load(seg_path, allow_pickle=True).item()
-
-    virtual_points1 = data_dict["real_points"]
-    # NOTE: add zero reflectance to virtual points instead of removing them from real points
-    virtual_points2 = np.concatenate(
-        [
-            data_dict["virtual_points"][:, :3],
-            np.zeros([data_dict["virtual_points"].shape[0], 1]),
-            data_dict["virtual_points"][:, 3:],
-        ],
-        axis=-1,
+    wt_path = os.path.join(
+        *tokens[:-3],
+        "virtual_points",
+        tokens[-3],
+        tokens[-2] + wt_dir,
+        tokens[-1] + ".pkl.npy",
     )
-
+    if not os.path.exists(seg_path):
+        print(seg_path)
+        assert False
+    # assert os.path.exists(wt_path)
+    data_dict = np.load(seg_path, allow_pickle=True).item()
+    '''
+    with open(wt_path, 'rb') as file:
+        weight_dict = np.load(file, allow_pickle=True)
+        weight_dict = weight_dict.reshape(1, -1)[0, 0]
+    '''
+    
+    if len(data_dict["real_points_indice"]) > 0:
+        average_time = points[data_dict["real_points_indice"]][:, 4].mean()
+        # dims: 16
+        # x, y, z, i, c*10, s
+        # x, y, z, i, average_time, c*10, s, 1, 0
+        virtual_points1 = np.concatenate(
+            [
+                data_dict["real_points"][:, :4],
+                np.ones([data_dict["real_points"].shape[0], 1]) * average_time,
+                data_dict["real_points"][:, 4:],
+                # extra dim for gaussian weight
+                # weight_dict['weights_painted'][:, 0].reshape(-1, 1),
+                np.ones([data_dict["real_points"].shape[0], 1]),
+                np.zeros([data_dict["real_points"].shape[0], 1]),
+            ],
+            axis=-1,
+        )
+        # virtual_points1[:, -3] *= weight_dict['weights_painted']
+        # NOTE: add zero reflectance to virtual points instead of removing them from real points
+        # dims: 15
+        # x, y, z, 0(i), c*10, s
+        # x, y, z, 0(i), average_time, c*10, s, 0, 0
+        virtual_points2 = np.concatenate(
+            [
+                data_dict["virtual_points"][:, :3],
+                np.zeros([data_dict["virtual_points"].shape[0], 1]),
+                np.ones([data_dict["virtual_points"].shape[0], 1]) * average_time,
+                data_dict["virtual_points"][:, 3:],
+                # extra dim for gaussian weight
+                # weight_dict['weights_virtual'][:, 0].reshape(-1, 1),
+                np.zeros([data_dict["virtual_points"].shape[0], 2]),
+            ],
+            axis=-1,
+        )
+        # virtual_points2[:, -3] *= weight_dict['weights_virtual']
+    # dims: 18
+    # x, y, z, i, t, 0*10, 0(s), 0, 1
     points = np.concatenate(
         [
             points,
-            np.ones([points.shape[0], virtual_points1.shape[1] - points.shape[1] + 1]),
+            np.zeros([points.shape[0], 10 + 1]),
+            # extra dim for gaussian weight
+            # np.zeros([points.shape[0], 1]),
+            np.zeros([points.shape[0], 1]),
+            np.ones([points.shape[0], 1]),
         ],
         axis=1,
-    )
-    virtual_points1 = np.concatenate(
-        [virtual_points1, np.zeros([virtual_points1.shape[0], 1])], axis=1
     )
     # note: this part is different from Tianwei's implementation, we don't have duplicate foreground real points.
     if len(data_dict["real_points_indice"]) > 0:
         points[data_dict["real_points_indice"]] = virtual_points1
-    if virtual:
-        virtual_points2 = np.concatenate(
-            [virtual_points2, -1 * np.ones([virtual_points2.shape[0], 1])], axis=1
-        )
         points = np.concatenate([points, virtual_points2], axis=0).astype(np.float32)
+
     return points
 
 

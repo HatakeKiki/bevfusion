@@ -15,7 +15,12 @@ from mmdet3d.apis import train_model
 from mmdet3d.datasets import build_dataset
 from mmdet3d.models import build_model
 from mmdet3d.utils import get_root_logger, convert_sync_batchnorm, recursive_eval
+from pathlib import Path
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+# warnings.filterwarnings("ShapelyDeprecationWarning", category=UserWarning)
 
+CUDA_VISIBLE_DEVICES="0,1,2,3"
 
 def main():
     dist.init()
@@ -23,6 +28,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("config", metavar="FILE", help="config file")
     parser.add_argument("--run-dir", metavar="DIR", help="run directory")
+    parser.add_argument('--auto-resume', action='store_true', default=False, 
+                        help='resume from the latest checkpoint automatically')
     args, opts = parser.parse_known_args()
 
     configs.load(args.config, recursive=True)
@@ -38,6 +45,12 @@ def main():
     else:
         set_run_dir(args.run_dir)
     cfg.run_dir = args.run_dir
+    cfg.auto_resume = args.auto_resume
+
+    ckpt_dir = args.run_dir + '/ckpt'
+    ckpt_dir = Path(ckpt_dir)
+    if not ckpt_dir.exists():
+        ckpt_dir.mkdir(exist_ok=False, parents=True)
 
     # dump config
     cfg.dump(os.path.join(cfg.run_dir, "configs.yaml"))
@@ -67,6 +80,34 @@ def main():
 
     model = build_model(cfg.model)
     model.init_weights()
+    
+    if 'freeze_lidar_components' in cfg and cfg['freeze_lidar_components'] is True:
+        logger.info(f"param need to update:")
+        param_grad = []
+        param_nograd = []
+
+        for name, param in model.named_parameters():
+            if 'encoders.lidar' in name:
+                param.requires_grad = False
+                
+        for name, param in model.named_parameters():
+            if 'encoders.camera.backbone' in name:
+                param.requires_grad = False
+
+        from torch import nn
+        def fix_bn(m):
+            if isinstance(m, nn.BatchNorm1d) or isinstance(m, nn.BatchNorm2d):
+                m.track_running_stats = False
+
+        model.encoders.lidar.apply(fix_bn)
+
+        for name, param in model.named_parameters():
+            if param.requires_grad is True:
+                logger.info(name)
+                param_grad.append(name)
+            else:
+                param_nograd.append(name)
+    
     if cfg.get("sync_bn", None):
         if not isinstance(cfg["sync_bn"], dict):
             cfg["sync_bn"] = dict(exclude=[])

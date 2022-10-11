@@ -1,0 +1,16 @@
+dbinfos_file: nuscenes_dbinfos_virtual.pkl
+load_augmented: mvp
+gt_paste_stop_epoch: 15
+
+load_dim: 19
+use_dim: 19
+batch_size: 4
+
+model:
+  type: BEVFusion
+  virtual: True
+  encoders:
+    lidar:
+      backbone:
+        type: SparseEncoder
+        in_channels: ${use_dim}

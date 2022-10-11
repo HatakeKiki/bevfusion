@@ -32,16 +32,16 @@ def nuscenes_data_prep(
             root_path, info_prefix, version=version, max_sweeps=max_sweeps
         )
 
-        # if version == "v1.0-test":
-        #     info_test_path = osp.join(root_path, f"{info_prefix}_infos_test.pkl")
-        #     nuscenes_converter.export_2d_annotation(root_path, info_test_path, version=version)
-        #     return
-
-        # info_train_path = osp.join(root_path, f"{info_prefix}_infos_train.pkl")
-        # info_val_path = osp.join(root_path, f"{info_prefix}_infos_val.pkl")
+        if version == "v1.0-test":
+            info_test_path = osp.join(root_path, f"{info_prefix}_infos_test.pkl")
+            # nuscenes_converter.export_2d_annotation(root_path, info_test_path, version=version)
+            return
+        import os.path as osp
+        info_train_path = osp.join(root_path, f"{info_prefix}_infos_train.pkl")
+        info_val_path = osp.join(root_path, f"{info_prefix}_infos_val.pkl")
         # nuscenes_converter.export_2d_annotation(root_path, info_train_path, version=version)
         # nuscenes_converter.export_2d_annotation(root_path, info_val_path, version=version)
-
+    # '''
     create_groundtruth_database(
         dataset_name,
         root_path,
@@ -49,6 +49,7 @@ def nuscenes_data_prep(
         f"{out_dir}/{info_prefix}_infos_train.pkl",
         load_augmented=load_augmented,
     )
+    # '''
 
 
 parser = argparse.ArgumentParser(description="Data converter arg parser")
@@ -89,7 +90,7 @@ parser.add_argument(
 args = parser.parse_args()
 
 if __name__ == "__main__":
-    load_augmented = None
+    load_augmented = "mvp"
     if args.virtual:
         if args.painted:
             load_augmented = "mvp"
@@ -97,6 +98,7 @@ if __name__ == "__main__":
             load_augmented = "pointpainting"
 
     if args.dataset == "nuscenes" and args.version != "v1.0-mini":
+        
         train_version = f"{args.version}-trainval"
         nuscenes_data_prep(
             root_path=args.root_path,
@@ -107,6 +109,7 @@ if __name__ == "__main__":
             max_sweeps=args.max_sweeps,
             load_augmented=load_augmented,
         )
+        '''
         test_version = f"{args.version}-test"
         nuscenes_data_prep(
             root_path=args.root_path,
@@ -117,6 +120,7 @@ if __name__ == "__main__":
             max_sweeps=args.max_sweeps,
             load_augmented=load_augmented,
         )
+        '''
     elif args.dataset == "nuscenes" and args.version == "v1.0-mini":
         train_version = f"{args.version}"
         nuscenes_data_prep(

@@ -18,11 +18,18 @@ from mmdet.apis import multi_gpu_test, set_random_seed
 from mmdet.datasets import replace_ImageToTensor
 from mmdet3d.utils import recursive_eval
 
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
 
 def parse_args():
     parser = argparse.ArgumentParser(description="MMDet test (and eval) a model")
     parser.add_argument("config", help="test config file path")
     parser.add_argument("checkpoint", help="checkpoint file")
+    parser.add_argument(
+        "--topN",
+        type=int,
+        default=None,
+    )
     parser.add_argument("--out", help="output result file in pickle format")
     parser.add_argument(
         "--fuse-conv-bn",
@@ -130,8 +137,11 @@ def main():
         raise ValueError("The output file must be a pkl file.")
 
     configs.load(args.config, recursive=True)
-    cfg = Config(recursive_eval(configs), filename=args.config)
-    print(cfg)
+    configs_ = recursive_eval(configs)
+    if args.topN is not None:
+        configs_['model']['heads']['object']['num_proposals'] = args.topN
+    cfg = Config(configs_, filename=args.config)
+    # print(cfg)
 
     if args.cfg_options is not None:
         cfg.merge_from_dict(args.cfg_options)
@@ -223,7 +233,10 @@ def main():
             ]:
                 eval_kwargs.pop(key, None)
             eval_kwargs.update(dict(metric=args.eval, **kwargs))
-            print(dataset.evaluate(outputs, **eval_kwargs))
+            ranges = [None, [0, 18], [18, 36], [36, 54]]
+            ranges = [None]
+            for range_eval in ranges:
+                print(dataset.evaluate(outputs, range_eval=range_eval, **eval_kwargs))
 
 
 if __name__ == "__main__":

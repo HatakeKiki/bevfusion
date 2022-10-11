@@ -10,12 +10,14 @@ from mmcv.parallel import MMDistributedDataParallel
 from mmcv.runner import load_checkpoint
 from torchpack import distributed as dist
 from torchpack.utils.config import configs
-from torchpack.utils.tqdm import tqdm
+from tqdm import tqdm
 
 from mmdet3d.core import LiDARInstance3DBoxes
 from mmdet3d.core.utils import visualize_camera, visualize_lidar, visualize_map
 from mmdet3d.datasets import build_dataloader, build_dataset
 from mmdet3d.models import build_model
+
+CUDA_VISIBLE_DEVICES="0,1,2,3"
 
 
 def recursive_eval(obj, globals=None):
@@ -40,11 +42,11 @@ def main() -> None:
 
     parser = argparse.ArgumentParser()
     parser.add_argument("config", metavar="FILE")
-    parser.add_argument("--mode", type=str, default="gt", choices=["gt", "pred"])
+    parser.add_argument("--mode", type=str, default="pred", choices=["gt", "pred"])
     parser.add_argument("--checkpoint", type=str, default=None)
-    parser.add_argument("--split", type=str, default="val", choices=["train", "val"])
+    parser.add_argument("--split", type=str, default="test", choices=["train", "val", "test"])
     parser.add_argument("--bbox-classes", nargs="+", type=int, default=None)
-    parser.add_argument("--bbox-score", type=float, default=None)
+    parser.add_argument("--bbox-score", type=float, default=0.1)
     parser.add_argument("--map-score", type=float, default=0.5)
     parser.add_argument("--out-dir", type=str, default="viz")
     args, opts = parser.parse_known_args()
@@ -129,7 +131,7 @@ def main() -> None:
             masks = masks >= args.map_score
         else:
             masks = None
-
+        # '''
         if "img" in data:
             for k, image_path in enumerate(metas["filename"]):
                 image = mmcv.imread(image_path)
@@ -141,7 +143,7 @@ def main() -> None:
                     transform=metas["lidar2image"][k],
                     classes=cfg.object_classes,
                 )
-
+        # '''
         if "points" in data:
             lidar = data["points"].data[0][0].numpy()
             visualize_lidar(
@@ -153,14 +155,14 @@ def main() -> None:
                 ylim=[cfg.point_cloud_range[d] for d in [1, 4]],
                 classes=cfg.object_classes,
             )
-
+        '''
         if masks is not None:
             visualize_map(
                 os.path.join(args.out_dir, "map", f"{name}.png"),
                 masks,
                 classes=cfg.map_classes,
             )
-
+        '''
 
 if __name__ == "__main__":
     main()
