@@ -38,8 +38,8 @@ class BEVFusion(Base3DFusionModel):
         self.in_mask = False
         self.virtual = False
         self.middle_fuse = False
-        if 'in_mask' in kwargs.keys():
-            self.in_mask = kwargs['in_mask']
+        if 'with_mask' in kwargs.keys():
+            self.in_mask = kwargs['with_mask']
         if 'virtual' in kwargs.keys():
             self.virtual = kwargs['virtual']
 
@@ -127,6 +127,9 @@ class BEVFusion(Base3DFusionModel):
 
         x = self.encoders["camera"]["backbone"](x)
         x = self.encoders["camera"]["neck"](x)
+        
+        if self.with_mask:
+            assert False
 
         if not isinstance(x, torch.Tensor):
             x = x[0]
@@ -190,6 +193,7 @@ class BEVFusion(Base3DFusionModel):
             # feats = feats.contiguous()
             
         if self.virtual:
+            assert False
             lidar_ratio = feats[:, -1]
             mix_mask = (lidar_ratio > 0) * (lidar_ratio < 1)
             feats[mix_mask, 3] /= torch.sum(feats[mix_mask, -2:], dim=1)
@@ -236,6 +240,7 @@ class BEVFusion(Base3DFusionModel):
         lidar_aug_matrix,
         metas,
         img=None,
+        masks=None,
         camera2ego=None,
         lidar2camera=None,
         lidar2image=None,
@@ -256,6 +261,7 @@ class BEVFusion(Base3DFusionModel):
                 lidar_aug_matrix,
                 metas,
                 img,
+                masks,
                 camera2ego,
                 lidar2camera,
                 lidar2image,
@@ -277,6 +283,7 @@ class BEVFusion(Base3DFusionModel):
         lidar_aug_matrix,
         metas,
         img=None,
+        masks=None,
         camera2ego=None,
         lidar2camera=None,
         lidar2image=None,

@@ -108,6 +108,8 @@ class DefaultFormatBundle3D:
                 results["img"] = DC(to_tensor(img), stack=True)
             '''
             results["img"] = DC(torch.stack(results["img"]), stack=True)
+        if "mask" in results:
+            results["mask"] = DC(torch.stack(results["mask"]), stack=True)
         for key in [
             "proposals",
             "gt_bboxes",

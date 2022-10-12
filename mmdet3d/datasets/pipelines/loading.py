@@ -12,6 +12,7 @@ from mmdet.datasets.builder import PIPELINES
 from mmdet.datasets.pipelines import LoadAnnotations
 
 from .loading_utils import load_augmented_point_cloud, reduce_LiDAR_beams
+import cv2
 
 
 @PIPELINES.register_module()
@@ -26,9 +27,10 @@ class LoadMultiViewImageFromFiles:
         color_type (str): Color type of the file. Defaults to 'unchanged'.
     """
 
-    def __init__(self, to_float32=False, color_type="unchanged"):
+    def __init__(self, to_float32=False, color_type="unchanged", with_mask=True):
         self.to_float32 = to_float32
         self.color_type = color_type
+        self.with_mask = with_mask
 
     def __call__(self, results):
         """Call function to load multi-view image from files.
@@ -59,10 +61,14 @@ class LoadMultiViewImageFromFiles:
         '''
         # modified for waymo
         images = []
+        masks = []
         h, w = 0, 0
         for name in filename:
             images.append(Image.open(name))
-
+            if self.with_mask:
+                masks.append(Image.open(name[:24] + 'MASK/' + name[24:-3] + 'png'))
+        results["mask"] = masks
+                
         #TODO: consider image padding in waymo
 
         results["filename"] = filename
