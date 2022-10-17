@@ -4,3 +4,11 @@ model:
     in_channels: [80, 256]
     out_channels: 256
 
+freeze_lidar_components: True
+freeze_camera_components: False
+max_epochs: 6
+gt_paste_stop_epoch: -1
+
+data:
+  samples_per_gpu: 2
+  workers_per_gpu: 4

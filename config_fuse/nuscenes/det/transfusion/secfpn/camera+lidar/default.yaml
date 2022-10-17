@@ -1,3 +1,4 @@
+transform_input: 256
 model:
   encoders:
     camera:
@@ -18,7 +19,7 @@ model:
           align_corners: false
       vtransform:
         type: DepthLSSTransform
-        in_channels: 256
+        in_channels: ${transform_input}
         out_channels: 80
         image_size: ${image_size}
         feature_size: ${[image_size[0] // 8, image_size[1] // 8]}

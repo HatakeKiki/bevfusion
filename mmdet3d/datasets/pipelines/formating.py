@@ -109,6 +109,10 @@ class DefaultFormatBundle3D:
             '''
             results["img"] = DC(torch.stack(results["img"]), stack=True)
         if "mask" in results:
+            import torchvision
+            # import numpy as np
+            results["mask"] = [torchvision.transforms.ToTensor()(mask) for mask in results["mask"]]
+            # results["mask"] = [np.array(mask) for mask in results["mask"]]
             results["mask"] = DC(torch.stack(results["mask"]), stack=True)
         for key in [
             "proposals",

@@ -1,10 +1,23 @@
-freeze_lidar_components: True
-freeze_camera_components: False
-max_epochs: 10
+freeze_lidar_components: true
+freeze_camera_components: false
 gt_paste_stop_epoch: -1
+
 data:
-  samples_per_gpu: 2
+  samples_per_gpu: 1
   workers_per_gpu: 4
+
+max_epochs: 10
+
+with_mask: true
+transform_input: 266
+image_size: [384, 1056]
+augment2d:
+  resize: [[0.6, 0.77], [0.66, 0.66]]
+  rotate: [-5.4, 5.4]
+  gridmask:
+    prob: 0.0
+    fixed_prob: true
+
 
 # MVP related
 dbinfos_file: nuscenes_dbinfos_virtual.pkl
@@ -18,6 +31,7 @@ use_dim: 18
 model:
   type: BEVFusion
   virtual: True
+  with_mask: ${with_mask}
   encoders:
     lidar:
       backbone:

@@ -1,0 +1,49 @@
+dbinfos_file: nuscenes_dbinfos_virtual.pkl
+train_pkl: nuscenes_infos_train.pkl
+val_pkl: nuscenes_infos_val.pkl
+
+load_augmented: mvp
+gt_paste_stop_epoch: 15
+
+load_dim: 18
+use_dim: 18
+batch_size: 4
+
+model:
+  type: BEVFusion
+  virtual: False
+  encoders:
+    lidar:
+      backbone:
+        type: SparseEncoder
+        in_channels: 5
+  semantic:
+    voxelize:
+      max_num_points: 10
+      point_cloud_range: ${point_cloud_range}
+      voxel_size: ${voxel_size}
+      max_voxels: [120000, 160000]
+    backbone:
+      type: SparseEncoder
+      in_channels: 17
+      sparse_shape: [1440, 1440, 41]
+      output_channels: 128
+      order:
+        - conv
+        - norm
+        - act
+      encoder_channels:
+        - [16, 16, 32]
+        - [32, 32, 64]
+        - [64, 64, 128]
+        - [128, 128]
+      encoder_paddings:
+        - [0, 0, 1]
+        - [0, 0, 1]
+        - [0, 0, [1, 1, 0]]
+        - [0, 0]
+      block_type: basicblock
+  fuser:
+    type: ConvFuser
+    in_channels: [256, 256]
+    out_channels: 256

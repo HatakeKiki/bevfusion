@@ -25,7 +25,7 @@ from .utils import noise_per_object_v3_
 @PIPELINES.register_module()
 class ImageAug3D:
     def __init__(
-        self, final_dim, resize_lim, bot_pct_lim, rot_lim, rand_flip, is_train, with_mask=True,
+        self, final_dim, resize_lim, bot_pct_lim, rot_lim, rand_flip, is_train, with_mask=False,
     ):
         self.final_dim = final_dim
         self.resize_lim = resize_lim
@@ -59,9 +59,43 @@ class ImageAug3D:
             flip = False
             rotate = 0
         return resize, resize_dims, crop, flip, rotate
+    def img_transform_rotation_first(
+        self, img, rotation, translation, resize, resize_dims, crop, flip, rotate, ori_shape, img_only=False,
+    ):
+        img = img.rotate(rotate)
+        img = img.resize(resize_dims)
+        img = img.crop(crop)
+        if flip:
+            img = img.transpose(method=Image.FLIP_LEFT_RIGHT)
+        if img_only:
+            return img
+        # post-homography transformation
+        W, H = ori_shape
+        theta = rotate / 180 * np.pi
+        A = torch.Tensor(
+            [
+                [np.cos(theta), np.sin(theta)],
+                [-np.sin(theta), np.cos(theta)],
+            ]
+        )
+        b = torch.Tensor([W, H]) / 2
+        b = A.matmul(-b) + b
 
+        rotation = A.matmul(rotation)
+        translation = A.matmul(translation) + b
+
+        rotation *= resize
+        translation *= resize
+        translation -= torch.Tensor(crop[:2])
+        if flip:
+            A = torch.Tensor([[-1, 0], [0, 1]])
+            b = torch.Tensor([crop[2] - crop[0] - 1, 0])
+            rotation = A.matmul(rotation)
+            translation = A.matmul(translation) + b
+        return img, rotation, translation
+    
     def img_transform(
-        self, img, rotation, translation, resize, resize_dims, crop, flip, rotate, img_only=False,
+        self, img, rotation, translation, resize, resize_dims, crop, flip, rotate, ori_shape=None, img_only=False,
     ):
         # adjust image
         img = img.resize(resize_dims)
@@ -99,16 +133,19 @@ class ImageAug3D:
         imgs = data["img"]
         new_imgs = []
         transforms = []
-        masks = data["mask"]
-        new_masks = []
-        transforms = []
+        if self.with_mask:
+            masks = data["mask"]
+            new_masks = []
+            transforms = []
+        else:
+            masks = [i for i in range(len(imgs))]
         idx = 0
         for img, mask in zip(imgs, masks):
             idx += 1
             resize, resize_dims, crop, flip, rotate = self.sample_augmentation(data)
             post_rot = torch.eye(2)
             post_tran = torch.zeros(2)
-            new_img, rotation, translation = self.img_transform(
+            new_img, rotation, translation = self.img_transform_rotation_first(
                 img,
                 post_rot,
                 post_tran,
@@ -117,6 +154,7 @@ class ImageAug3D:
                 crop=crop,
                 flip=flip,
                 rotate=rotate,
+                ori_shape=data["ori_shape"],
             )
             transform = torch.eye(4)
             transform[:2, :2] = rotation
@@ -124,7 +162,7 @@ class ImageAug3D:
             new_imgs.append(new_img)
             transforms.append(transform.numpy())
             if self.with_mask:
-                new_mask = self.img_transform(
+                new_mask = self.img_transform_rotation_first(
                     mask,
                     post_rot,
                     post_tran,
@@ -133,19 +171,21 @@ class ImageAug3D:
                     crop=crop,
                     flip=flip,
                     rotate=rotate,
+                    ori_shape=data["ori_shape"],
                     img_only=True,
                 )
                 new_masks.append(new_mask)
-            import cv2
-            print(type(new_img))
-            new_img.save('/home/kiki/jq/lss/bevfusion/data/img_' + str(idx) + '.png')
-            # cv2.imwrite(, new_img)
-            new_mask.save('/home/kiki/jq/lss/bevfusion/data/mask_' + str(idx) + '.png')
-            # cv2.imwrite('/home/kiki/jq/lss/bevfusion/data/mask_' + str(idx) + '.png', new_mask)
+            # print(type(new_img))
+            # new_img.save('/home/kiki/jq/lss/bevfusion/data/img_' + str(idx) + '.png')
+            # new_mask.save('/home/kiki/jq/lss/bevfusion/data/mask_' + str(idx) + '.png')
             # print('=================================')
-        assert False
+        # assert False
+        
         data["img"] = new_imgs
-        data["mask"] = new_masks
+        if self.with_mask:
+            data["mask"] = new_masks
+        elif 'mask' in data.keys():
+            del data["mask"]
         # update the calibration matrices
         data["img_aug_matrix"] = transforms
         return data

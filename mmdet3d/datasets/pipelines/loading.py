@@ -27,7 +27,7 @@ class LoadMultiViewImageFromFiles:
         color_type (str): Color type of the file. Defaults to 'unchanged'.
     """
 
-    def __init__(self, to_float32=False, color_type="unchanged", with_mask=True):
+    def __init__(self, to_float32=False, color_type="unchanged", with_mask=False):
         self.to_float32 = to_float32
         self.color_type = color_type
         self.with_mask = with_mask
@@ -67,6 +67,7 @@ class LoadMultiViewImageFromFiles:
             images.append(Image.open(name))
             if self.with_mask:
                 masks.append(Image.open(name[:24] + 'MASK/' + name[24:-3] + 'png'))
+        assert len(images) != 0
         results["mask"] = masks
                 
         #TODO: consider image padding in waymo

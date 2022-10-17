@@ -14,6 +14,8 @@ point_cloud_range: [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
 voxel_size: [0.1, 0.1, 0.2]
 image_size: [256, 704]
 
+with_mask: False
+
 augment2d:
   resize: [[0.38, 0.55], [0.48, 0.48]]
   rotate: [-5.4, 5.4]
@@ -60,6 +62,7 @@ train_pipeline:
   -
     type: LoadMultiViewImageFromFiles
     to_float32: true
+    with_mask: ${with_mask}
   -
     type: LoadPointsFromFile
     coord_type: LIDAR
@@ -127,6 +130,7 @@ train_pipeline:
     rot_lim: ${augment2d.rotate}
     rand_flip: True
     is_train: true
+    with_mask: ${with_mask}
   -
     type: GlobalRotScaleTrans
     resize_lim: ${augment3d.scale}
@@ -175,6 +179,7 @@ train_pipeline:
     keys:
       - img
       - points
+      # - mask
       - gt_bboxes_3d
       - gt_labels_3d
       - gt_masks_bev
@@ -192,6 +197,7 @@ test_pipeline:
   -
     type: LoadMultiViewImageFromFiles
     to_float32: true
+    with_mask: ${with_mask}
   -
     type: LoadPointsFromFile
     coord_type: LIDAR
@@ -221,6 +227,7 @@ test_pipeline:
     rot_lim: [0.0, 0.0]
     rand_flip: false
     is_train: false
+    with_mask: ${with_mask}
   -
     type: GlobalRotScaleTrans
     resize_lim: [1.0, 1.0]
@@ -248,6 +255,7 @@ test_pipeline:
     keys:
       - img
       - points
+      # - mask
       - gt_bboxes_3d
       - gt_labels_3d
       - gt_masks_bev

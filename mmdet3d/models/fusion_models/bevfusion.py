@@ -35,11 +35,11 @@ class BEVFusion(Base3DFusionModel):
         super().__init__()
         
         ## falgs for MVP and maksed CNN featuers
-        self.in_mask = False
+        self.with_mask = False
         self.virtual = False
         self.middle_fuse = False
         if 'with_mask' in kwargs.keys():
-            self.in_mask = kwargs['with_mask']
+            self.with_mask = kwargs['with_mask']
         if 'virtual' in kwargs.keys():
             self.virtual = kwargs['virtual']
 
@@ -121,6 +121,7 @@ class BEVFusion(Base3DFusionModel):
         img_aug_matrix,
         lidar_aug_matrix,
         img_metas,
+        mask=None,
     ) -> torch.Tensor:
         B, N, C, H, W = x.size()
         x = x.view(B * N, C, H, W)
@@ -128,11 +129,15 @@ class BEVFusion(Base3DFusionModel):
         x = self.encoders["camera"]["backbone"](x)
         x = self.encoders["camera"]["neck"](x)
         
-        if self.with_mask:
-            assert False
 
         if not isinstance(x, torch.Tensor):
             x = x[0]
+            
+        if self.with_mask:
+            mask = mask.view(B * N, C, H, W)
+            out_sem = self.semantic_downsample(mask, with_bool=False)
+            x = torch.cat([x, out_sem.detach()], dim=1)
+            del out_sem
 
         BN, C, H, W = x.size()
         x = x.view(B, int(BN / B), C, H, W)
@@ -151,6 +156,33 @@ class BEVFusion(Base3DFusionModel):
             img_metas,
         )
         return x
+
+    def semantic_downsample(self, x, with_bool=False, down_factor=8, class_num=10):
+        sem_bool = x[:, 2, :, :]
+        sem_score = x[:, 0, :, :]
+        sem_label = x[:, 1, :, :]
+        
+        sem_down_sample = nn.AvgPool2d(kernel_size=(down_factor, down_factor), stride=(down_factor, down_factor))
+
+        cats = torch.tensor([i+1 for i in range(class_num)])/255
+
+        BN, W, H = sem_label.shape
+        out_sem_mask = torch.zeros([BN*W*H, class_num], dtype=torch.float32, device=x.device)
+
+        sem_label_ = sem_label.reshape(-1)
+        sem_score_ = sem_score.reshape(-1)
+        for cat in cats:
+            index = (sem_label_ == cat)
+            out_sem_mask[index, int(cat*255) - 1] = sem_score_[index]
+        out_sem_mask = out_sem_mask.reshape(BN, W, H, class_num).permute(0, 3, 1, 2)
+        out_sem_mask = sem_down_sample(out_sem_mask)
+        
+        if with_bool:
+            bool_down_sample = nn.MaxPool2d(kernel_size=(down_factor, down_factor), stride=(down_factor, down_factor))
+            out_bool = bool_down_sample(sem_bool)
+            return out_bool, out_sem_mask
+        else:
+            return out_sem_mask
 
     def extract_lidar_features(self, x) -> torch.Tensor:
         feats, coords, sizes = self.voxelize(x)
@@ -193,7 +225,6 @@ class BEVFusion(Base3DFusionModel):
             # feats = feats.contiguous()
             
         if self.virtual:
-            assert False
             lidar_ratio = feats[:, -1]
             mix_mask = (lidar_ratio > 0) * (lidar_ratio < 1)
             feats[mix_mask, 3] /= torch.sum(feats[mix_mask, -2:], dim=1)
@@ -240,7 +271,7 @@ class BEVFusion(Base3DFusionModel):
         lidar_aug_matrix,
         metas,
         img=None,
-        masks=None,
+        mask=None,
         camera2ego=None,
         lidar2camera=None,
         lidar2image=None,
@@ -261,7 +292,7 @@ class BEVFusion(Base3DFusionModel):
                 lidar_aug_matrix,
                 metas,
                 img,
-                masks,
+                mask,
                 camera2ego,
                 lidar2camera,
                 lidar2image,
@@ -283,7 +314,7 @@ class BEVFusion(Base3DFusionModel):
         lidar_aug_matrix,
         metas,
         img=None,
-        masks=None,
+        mask=None,
         camera2ego=None,
         lidar2camera=None,
         lidar2image=None,
@@ -312,6 +343,7 @@ class BEVFusion(Base3DFusionModel):
                     img_aug_matrix,
                     lidar_aug_matrix,
                     metas,
+                    mask
                 )
             elif sensor == "lidar":
                 if self.middle_fuse:
