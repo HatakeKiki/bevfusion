@@ -81,18 +81,19 @@ def main():
     model = build_model(cfg.model)
     model.init_weights()
     
-    if 'freeze_lidar_components' in cfg and cfg['freeze_lidar_components'] is True:
+    if ('freeze_lidar_components' in cfg) or ('freeze_camera_components' in cfg) and cfg['freeze_lidar_components'] is True:
         logger.info(f"param need to update:")
         param_grad = []
         param_nograd = []
-
-        for name, param in model.named_parameters():
-            if 'encoders.lidar' in name:
-                param.requires_grad = False
-                
-        for name, param in model.named_parameters():
-            if 'encoders.camera.backbone' in name:
-                param.requires_grad = False
+        if 'freeze_lidar_components' in cfg and cfg['freeze_lidar_components'] is True:
+            for name, param in model.named_parameters():
+                if 'encoders.lidar' in name:
+                    param.requires_grad = False
+                    
+        if 'freeze_camera_components' in cfg and cfg['freeze_camera_components'] is True:        
+            for name, param in model.named_parameters():
+                if 'encoders.camera.backbone' in name:
+                    param.requires_grad = False
 
         from torch import nn
         def fix_bn(m):
