@@ -25,7 +25,7 @@ from .utils import noise_per_object_v3_
 @PIPELINES.register_module()
 class ImageAug3D:
     def __init__(
-        self, final_dim, resize_lim, bot_pct_lim, rot_lim, rand_flip, is_train
+        self, final_dim, resize_lim, bot_pct_lim, rot_lim, rand_flip, is_train, with_mask=True,
     ):
         self.final_dim = final_dim
         self.resize_lim = resize_lim
@@ -33,9 +33,9 @@ class ImageAug3D:
         self.rand_flip = rand_flip
         self.rot_lim = rot_lim
         self.is_train = is_train
+        self.with_mask = with_mask
 
     def sample_augmentation(self, results):
-        # H, W, _, _ = results["ori_shape"]
         W, H = results["ori_shape"]
         fH, fW = self.final_dim
         if self.is_train:
@@ -61,16 +61,17 @@ class ImageAug3D:
         return resize, resize_dims, crop, flip, rotate
 
     def img_transform(
-        self, img, rotation, translation, resize, resize_dims, crop, flip, rotate
+        self, img, rotation, translation, resize, resize_dims, crop, flip, rotate, img_only=False,
     ):
         # adjust image
-        # img = Image.fromarray(img.astype(np.uint8))
         img = img.resize(resize_dims)
         img = img.crop(crop)
         if flip:
             img = img.transpose(method=Image.FLIP_LEFT_RIGHT)
         img = img.rotate(rotate)
-        # img = np.array(img).astype(np.float32)
+        
+        if img_only:
+            return img
 
         # post-homography transformation
         rotation *= resize
@@ -98,7 +99,12 @@ class ImageAug3D:
         imgs = data["img"]
         new_imgs = []
         transforms = []
-        for img in imgs:
+        masks = data["mask"]
+        new_masks = []
+        transforms = []
+        idx = 0
+        for img, mask in zip(imgs, masks):
+            idx += 1
             resize, resize_dims, crop, flip, rotate = self.sample_augmentation(data)
             post_rot = torch.eye(2)
             post_tran = torch.zeros(2)
@@ -117,7 +123,29 @@ class ImageAug3D:
             transform[:2, 3] = translation
             new_imgs.append(new_img)
             transforms.append(transform.numpy())
+            if self.with_mask:
+                new_mask = self.img_transform(
+                    mask,
+                    post_rot,
+                    post_tran,
+                    resize=resize,
+                    resize_dims=resize_dims,
+                    crop=crop,
+                    flip=flip,
+                    rotate=rotate,
+                    img_only=True,
+                )
+                new_masks.append(new_mask)
+            import cv2
+            print(type(new_img))
+            new_img.save('/home/kiki/jq/lss/bevfusion/data/img_' + str(idx) + '.png')
+            # cv2.imwrite(, new_img)
+            new_mask.save('/home/kiki/jq/lss/bevfusion/data/mask_' + str(idx) + '.png')
+            # cv2.imwrite('/home/kiki/jq/lss/bevfusion/data/mask_' + str(idx) + '.png', new_mask)
+            # print('=================================')
+        assert False
         data["img"] = new_imgs
+        data["mask"] = new_masks
         # update the calibration matrices
         data["img_aug_matrix"] = transforms
         return data
@@ -904,17 +932,19 @@ class ImagePad:
 
 @PIPELINES.register_module()
 class ImageNormalize:
-    def __init__(self, mean, std, to_rgb=True):
-        self.mean = np.array(mean, dtype=np.float32)
-        self.std = np.array(std, dtype=np.float32)
-        self.to_rgb = to_rgb
+    def __init__(self, mean, std):
+        self.mean = mean
+        self.std = std
+        self.compose = torchvision.transforms.Compose(
+            [
+                torchvision.transforms.ToTensor(),
+                torchvision.transforms.Normalize(mean=mean, std=std),
+            ]
+        )
 
     def __call__(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        data["img"] = [
-            mmcv.imnormalize(img, self.mean, self.std, self.to_rgb)
-            for img in data["img"]
-        ]
-        data["img_norm_cfg"] = dict(mean=self.mean, std=self.std, to_rgb=self.to_rgb)
+        data["img"] = [self.compose(img) for img in data["img"]]
+        data["img_norm_cfg"] = dict(mean=self.mean, std=self.std)
         return data
 
 

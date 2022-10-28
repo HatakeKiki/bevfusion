@@ -145,7 +145,7 @@ class ImageAug3D:
             resize, resize_dims, crop, flip, rotate = self.sample_augmentation(data)
             post_rot = torch.eye(2)
             post_tran = torch.zeros(2)
-            new_img, rotation, translation = self.img_transform_rotation_first(
+            new_img, rotation, translation = self.img_transform(
                 img,
                 post_rot,
                 post_tran,
@@ -162,7 +162,7 @@ class ImageAug3D:
             new_imgs.append(new_img)
             transforms.append(transform.numpy())
             if self.with_mask:
-                new_mask = self.img_transform_rotation_first(
+                new_mask = self.img_transform(
                     mask,
                     post_rot,
                     post_tran,

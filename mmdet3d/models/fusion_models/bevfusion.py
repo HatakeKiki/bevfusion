@@ -38,10 +38,15 @@ class BEVFusion(Base3DFusionModel):
         self.with_mask = False
         self.virtual = False
         self.middle_fuse = False
+        self.filter = False
         if 'with_mask' in kwargs.keys():
             self.with_mask = kwargs['with_mask']
+            if self.with_mask:
+                self.class_encoding = nn.Conv1d(10, 256, 1)
         if 'virtual' in kwargs.keys():
             self.virtual = kwargs['virtual']
+        if 'filter' in kwargs.keys():
+            self.filter = kwargs['filter']
 
         self.encoders = nn.ModuleDict()
         if encoders.get("camera") is not None:
@@ -125,6 +130,14 @@ class BEVFusion(Base3DFusionModel):
     ) -> torch.Tensor:
         B, N, C, H, W = x.size()
         x = x.view(B * N, C, H, W)
+        '''
+        img = x.permute(0,3,2,1)
+        import numpy as np
+        img = np.array(img.cpu())
+        import cv2
+        for i in range(B*N):
+            cv2.imwrite('/home/kiki/lss/bevfusion/visual/img_%d' % i, img[i, :, :, :])
+        '''
 
         x = self.encoders["camera"]["backbone"](x)
         x = self.encoders["camera"]["neck"](x)
@@ -135,8 +148,24 @@ class BEVFusion(Base3DFusionModel):
             
         if self.with_mask:
             mask = mask.view(B * N, C, H, W)
-            out_sem = self.semantic_downsample(mask, with_bool=False)
-            x = torch.cat([x, out_sem.detach()], dim=1)
+            # mask = mask.permute(0,3,2,1)
+            # mask = np.array(mask.cpu())
+            # for i in range(B*N):
+            #     cv2.imwrite('/home/kiki/lss/bevfusion/visual/mask_%d' % i, mask[i, :, :, :])
+            out = self.semantic_downsample(mask, with_bool=self.filter)
+            if self.filter:
+                out_bool, out_sem = out
+                out_bool = out_bool.detach()
+            else:
+                out_sem = out
+                out_bool = None
+                
+            out_sem = out_sem.detach()
+            out_sem = out_sem.reshape(B*N, 10, -1)
+            
+            learned_class = self.class_encoding(out_sem.detach())
+            learned_class = learned_class.reshape(x.shape[0], x.shape[1], x.shape[2], x.shape[3])
+            x = x + learned_class
             del out_sem
 
         BN, C, H, W = x.size()
@@ -154,11 +183,13 @@ class BEVFusion(Base3DFusionModel):
             img_aug_matrix,
             lidar_aug_matrix,
             img_metas,
+            out_bool=out_bool,
         )
         return x
 
     def semantic_downsample(self, x, with_bool=False, down_factor=8, class_num=10):
         sem_bool = x[:, 2, :, :]
+        # assert sem_bool.bool().sum() > 0
         sem_score = x[:, 0, :, :]
         sem_label = x[:, 1, :, :]
         

@@ -2,7 +2,7 @@ from typing import Tuple
 
 import torch
 from mmcv.runner import force_fp32
-from torch import nn
+from torch import int32, nn
 
 from mmdet3d.models.builder import VTRANSFORMS
 
@@ -35,6 +35,7 @@ class DepthLSSTransform(BaseDepthTransform):
             zbound=zbound,
             dbound=dbound,
         )
+        # TODO: Lidar points for depth
         self.dtransform = nn.Sequential(
             nn.Conv2d(1, 8, 1),
             nn.BatchNorm2d(8),
@@ -79,18 +80,37 @@ class DepthLSSTransform(BaseDepthTransform):
             self.downsample = nn.Identity()
 
     @force_fp32()
-    def get_cam_feats(self, x, d):
+    def get_cam_feats(self, x, d, learned_class):
         B, N, C, fH, fW = x.shape
 
         d = d.view(B * N, *d.shape[2:])
         x = x.view(B * N, C, fH, fW)
 
+        # TODO: Lidar points for depth
         d = self.dtransform(d)
         x = torch.cat([d, x], dim=1)
         x = self.depthnet(x)
+        
+        # assert learned_class is not None
+        if learned_class is not None:
+            x[:, self.D : (self.D + self.C), :, :] = x[:, self.D : (self.D + self.C), :, :] + learned_class
 
+        # # Uniform depth distribution
+        # depth = torch.ones((x.shape[0], self.D, x.shape[2], x.shape[3]), dtype=torch.float32, device=x.device)
+        # x = depth.unsqueeze(1) * x.unsqueeze(2)
+        # del depth
+        
+        # Predicted depth distribution
         depth = x[:, : self.D].softmax(dim=1)
         x = depth.unsqueeze(1) * x[:, self.D : (self.D + self.C)].unsqueeze(2)
+
+        # Predicted ray distribution
+        # depth = x[:, :1].softmax(dim=1)
+        # depth_list = []
+        # for i in range(118):
+        #     depth_list.append(depth)
+        # depth = torch.stack(depth_list, dim=2)
+        # x = depth * x[:, 1 : (1 + self.C)].unsqueeze(2)
 
         x = x.view(B, N, self.C, self.D, fH, fW)
         x = x.permute(0, 1, 3, 4, 5, 2)

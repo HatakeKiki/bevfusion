@@ -125,7 +125,7 @@ class BaseTransform(nn.Module):
         raise NotImplementedError
 
     @force_fp32()
-    def bev_pool(self, geom_feats, x):
+    def bev_pool(self, geom_feats, x, out_bool=None):
         B, N, D, H, W, C = x.shape
         Nprime = B * N * D * H * W
 
@@ -152,6 +152,20 @@ class BaseTransform(nn.Module):
             & (geom_feats[:, 2] >= 0)
             & (geom_feats[:, 2] < self.nx[2])
         )
+        
+        # filter out points that are outside mask
+        if out_bool is not None:
+            mask_bool = []
+            for i in range(D):
+                mask_bool.append(out_bool)
+            mask_bool = torch.stack(mask_bool, axis=1)
+            mask_bool = mask_bool.view(Nprime).bool()
+            # kept = kept & mask_bool
+            if (kept & mask_bool).sum() == 0:
+                print('=====================')
+                print(mask_bool.sum())
+                assert False
+            
         x = x[kept]
         geom_feats = geom_feats[kept]
 
@@ -220,6 +234,8 @@ class BaseDepthTransform(BaseTransform):
         img_aug_matrix,
         lidar_aug_matrix,
         metas,
+        learned_class=None,
+        out_bool=None,
         **kwargs,
     ):
         rots = sensor2ego[..., :3, :3]
@@ -289,6 +305,6 @@ class BaseDepthTransform(BaseTransform):
             extra_trans=extra_trans,
         )
 
-        x = self.get_cam_feats(img, depth)
-        x = self.bev_pool(geom, x)
+        x = self.get_cam_feats(img, depth, learned_class)
+        x = self.bev_pool(geom, x, out_bool)
         return x

@@ -5,7 +5,7 @@ model:
     out_channels: 256
 
 freeze_lidar_components: True
-freeze_camera_components: False
+freeze_camera_components: True
 max_epochs: 6
 gt_paste_stop_epoch: -1
 
