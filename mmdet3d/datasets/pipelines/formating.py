@@ -106,7 +106,7 @@ class DefaultFormatBundle3D:
             else:
                 img = np.ascontiguousarray(results["img"].transpose(2, 0, 1))
                 results["img"] = DC(to_tensor(img), stack=True)
-            '''
+                '''
             results["img"] = DC(torch.stack(results["img"]), stack=True)
         if "mask" in results:
             import torchvision
@@ -172,11 +172,17 @@ class Collect3D:
             "lidar_path",
             "transformation_3d_flow",
         ),
+        meta_tta_keys=(
+            "tta_rotation",
+            "tta_scale",
+            "tta_double_flip",
+        )
     ):
         self.keys = keys
         self.meta_keys = meta_keys
         # [fixme] note: need at least 1 meta lis key to perform training.
         self.meta_lis_keys = meta_lis_keys
+        self.meta_tta_keys = meta_tta_keys
 
     def __call__(self, results):
         """Call function to collect keys in results. The keys in ``meta_keys``
@@ -206,6 +212,12 @@ class Collect3D:
         for key in self.meta_lis_keys:
             if key in results:
                 metas[key] = results[key]
+        
+        metas_tta = {}
+        for key in self.meta_tta_keys:
+            if key in results:
+                metas_tta[key] = results[key]
 
         data["metas"] = DC(metas, cpu_only=True)
+        data["metas_tta"] = DC(metas_tta, cpu_only=True)
         return data

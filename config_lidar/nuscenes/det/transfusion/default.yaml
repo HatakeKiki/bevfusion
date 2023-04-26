@@ -1,7 +1,9 @@
+msda: False
 model:
   heads:
     object:
       type: TransFusionHead
+      msda: ${msda}
       num_proposals: 200
       auxiliary: true
       in_channels: null

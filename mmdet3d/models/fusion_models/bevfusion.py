@@ -4,6 +4,8 @@ import torch
 from mmcv.runner import auto_fp16, force_fp32
 from torch import nn
 from torch.nn import functional as F
+# for TTA
+from mmdet3d.core.bbox import box_np_ops as box_np_ops
 
 from mmdet3d.models.builder import (
     build_backbone,
@@ -26,13 +28,15 @@ class BEVFusion(Base3DFusionModel):
     def __init__(
         self,
         encoders: Dict[str, Any],
-        fuser: Dict[str, Any],
         decoder: Dict[str, Any],
         heads: Dict[str, Any],
-        semantic: Dict[str, Any]=None,
+        fuser: Dict[str, Any]=None,
+        # semantic: Dict[str, Any]=None,
         **kwargs,
     ) -> None:
         super().__init__()
+        if not (self.__class__ is BEVFusion):
+            return
         
         ## falgs for MVP and maksed CNN featuers
         self.with_mask = False
@@ -69,20 +73,7 @@ class BEVFusion(Base3DFusionModel):
                 }
             )
             self.voxelize_reduce = encoders["lidar"].get("voxelize_reduce", True)
-        # '''
-        if semantic is not None:
-            if semantic["voxelize"].get("max_num_points", -1) > 0:
-                voxelize_module = Voxelization(**semantic["voxelize"])
-            else:
-                voxelize_module = DynamicScatter(**semantic["voxelize"])
-            self.semantic = nn.ModuleDict(
-                {
-                    "voxelize": voxelize_module,
-                    "backbone": build_backbone(semantic["backbone"]),
-                }
-            )
-            self.middle_fuse = True
-        # '''
+
         if fuser is not None:
             self.fuser = build_fuser(fuser)
         else:
@@ -112,10 +103,10 @@ class BEVFusion(Base3DFusionModel):
     def init_weights(self) -> None:
         if "camera" in self.encoders:
             self.encoders["camera"]["backbone"].init_weights()
-
+            
     def extract_camera_features(
         self,
-        x,
+        img,
         points,
         camera2ego,
         lidar2ego,
@@ -127,17 +118,11 @@ class BEVFusion(Base3DFusionModel):
         lidar_aug_matrix,
         img_metas,
         mask=None,
+        benchmark_vt=False,
     ) -> torch.Tensor:
+        x = img
         B, N, C, H, W = x.size()
         x = x.view(B * N, C, H, W)
-        '''
-        img = x.permute(0,3,2,1)
-        import numpy as np
-        img = np.array(img.cpu())
-        import cv2
-        for i in range(B*N):
-            cv2.imwrite('/home/kiki/lss/bevfusion/visual/img_%d' % i, img[i, :, :, :])
-        '''
 
         x = self.encoders["camera"]["backbone"](x)
         x = self.encoders["camera"]["neck"](x)
@@ -152,10 +137,12 @@ class BEVFusion(Base3DFusionModel):
             # mask = np.array(mask.cpu())
             # for i in range(B*N):
             #     cv2.imwrite('/home/kiki/lss/bevfusion/visual/mask_%d' % i, mask[i, :, :, :])
+            self.filter = True
             out = self.semantic_downsample(mask, with_bool=self.filter)
             if self.filter:
                 out_bool, out_sem = out
                 out_bool = out_bool.detach()
+                # assert False
             else:
                 out_sem = out
                 out_bool = None
@@ -167,9 +154,14 @@ class BEVFusion(Base3DFusionModel):
             learned_class = learned_class.reshape(x.shape[0], x.shape[1], x.shape[2], x.shape[3])
             x = x + learned_class
             del out_sem
+        # else:
+        #     assert False
 
         BN, C, H, W = x.size()
         x = x.view(B, int(BN / B), C, H, W)
+        
+        if benchmark_vt:
+            return x, out_bool
 
         x = self.encoders["camera"]["vtransform"](
             x,
@@ -183,13 +175,12 @@ class BEVFusion(Base3DFusionModel):
             img_aug_matrix,
             lidar_aug_matrix,
             img_metas,
-            out_bool=out_bool,
+            # out_bool=out_bool,
         )
         return x
-
+    
     def semantic_downsample(self, x, with_bool=False, down_factor=8, class_num=10):
         sem_bool = x[:, 2, :, :]
-        # assert sem_bool.bool().sum() > 0
         sem_score = x[:, 0, :, :]
         sem_label = x[:, 1, :, :]
         
@@ -221,11 +212,6 @@ class BEVFusion(Base3DFusionModel):
         x = self.encoders["lidar"]["backbone"](feats, coords, batch_size, sizes=sizes)
         return x
     
-    def extract_semantic_features(self, x) -> torch.Tensor:
-        feats, coords, sizes = self.semantic_voxelize(x)
-        batch_size = coords[-1, 0] + 1
-        x = self.semantic["backbone"](feats, coords, batch_size, sizes=sizes)
-        return x
 
     @torch.no_grad()
     @force_fp32()
@@ -264,35 +250,6 @@ class BEVFusion(Base3DFusionModel):
         feats = feats.contiguous()
         
         return feats, coords, sizes
-    @torch.no_grad()
-    @force_fp32()
-    def semantic_voxelize(self, points):
-        feats, coords, sizes = [], [], []
-        for k, res in enumerate(points):
-            ret = self.semantic["voxelize"](res)
-            if len(ret) == 3:
-                # hard voxelize
-                f, c, n = ret
-            else:
-                assert len(ret) == 2
-                f, c = ret
-                n = None
-            feats.append(f)
-            coords.append(F.pad(c, (1, 0), mode="constant", value=k))
-            if n is not None:
-                sizes.append(n)
-
-        feats = torch.cat(feats, dim=0)
-        coords = torch.cat(coords, dim=0)
-        if len(sizes) > 0:
-            sizes = torch.cat(sizes, dim=0)
-            if self.voxelize_reduce:
-                feats = feats.sum(dim=1, keepdim=False) / sizes.type_as(feats).view(
-                    -1, 1
-                )
-            feats = feats.contiguous()
-        
-        return feats, coords, sizes
 
     @auto_fp16(apply_to=("img", "points"))
     def forward(
@@ -312,8 +269,19 @@ class BEVFusion(Base3DFusionModel):
         gt_masks_bev=None,
         gt_bboxes_3d=None,
         gt_labels_3d=None,
+        metas_tta=None,
         **kwargs,
     ):
+        # import numpy as np
+        # np.save('/home/kiki/jq/lss/bevfusion/depth_attn/camera_intrinsics', \
+        #     camera_intrinsics.detach().cpu().numpy())
+        # np.save('/home/kiki/jq/lss/bevfusion/depth_attn/camera2lidar', \
+        #     camera2lidar.detach().cpu().numpy())
+        # np.save('/home/kiki/jq/lss/bevfusion/depth_attn/img_aug_matrix', \
+        #     img_aug_matrix.detach().cpu().numpy())
+        # np.save('/home/kiki/jq/lss/bevfusion/depth_attn/lidar_aug_matrix', \
+        #     lidar_aug_matrix.detach().cpu().numpy())
+        
         if isinstance(img, list):
             raise NotImplementedError
         else:
@@ -333,6 +301,7 @@ class BEVFusion(Base3DFusionModel):
                 gt_masks_bev,
                 gt_bboxes_3d,
                 gt_labels_3d,
+                metas_tta=metas_tta,
                 **kwargs,
             )
             return outputs
@@ -355,14 +324,19 @@ class BEVFusion(Base3DFusionModel):
         gt_masks_bev=None,
         gt_bboxes_3d=None,
         gt_labels_3d=None,
+        metas_tta=None,
         **kwargs,
     ):
         features = []
-        for sensor in (
-            self.encoders if self.training else list(self.encoders.keys())[::-1]
-        ):
-            if sensor == "camera":
-                feature = self.extract_camera_features(
+        sensors = self.encoders if self.training else list(self.encoders.keys())[::-1]
+        if "lidar" in sensors:
+            pts_feat = self.extract_lidar_features(points)
+            features.append(pts_feat)
+        else:
+            pts_feat = None
+        if "camera" in sensors:
+            if self.__class__ is BEVFusion:
+                img_feat = self.extract_camera_features(
                     img,
                     points,
                     camera2ego,
@@ -376,28 +350,53 @@ class BEVFusion(Base3DFusionModel):
                     metas,
                     mask
                 )
-            elif sensor == "lidar":
-                if self.middle_fuse:
-                    lidar_points = []
-                    virtual_points = []
-                    for bs in range(len(points)):
-                        lidar_mask = (points[bs][:, -1] == 1)
-                        lidar_points.append(points[bs][lidar_mask, 0:5])
-                        virtual_points.append(points[bs][~lidar_mask, 0:17])
-                    semantic_feature = self.extract_semantic_features(virtual_points)
-                else:
-                    semantic_feature = None
-                    lidar_points = points
-                feature = self.extract_lidar_features(lidar_points)
             else:
-                raise ValueError(f"unsupported sensor: {sensor}")
-            features.append(feature)
-            if (sensor == 'lidar') and (semantic_feature is not None):
-                features.append(semantic_feature)
+                img_feat = self.extract_camera_features(
+                    img,
+                    pts_feat,
+                    camera2ego,
+                    lidar2ego,
+                    lidar2camera,
+                    lidar2image,
+                    camera_intrinsics,
+                    camera2lidar,
+                    img_aug_matrix,
+                    lidar_aug_matrix,
+                    metas,
+                    mask
+                )
+                
+            features.append(img_feat)
+                
+        features = features[::-1]
+        # features = []
+        # for sensor in (
+        #     self.encoders if self.training else list(self.encoders.keys())[::-1]
+        # ):
+        #     if sensor == "camera":
+        #         feature = self.extract_camera_features(
+        #             img,
+        #             points,
+        #             camera2ego,
+        #             lidar2ego,
+        #             lidar2camera,
+        #             lidar2image,
+        #             camera_intrinsics,
+        #             camera2lidar,
+        #             img_aug_matrix,
+        #             lidar_aug_matrix,
+        #             metas,
+        #             mask
+        #         )
+        #     elif sensor == "lidar":
+        #         feature = self.extract_lidar_features(points)
+        #     else:
+        #         raise ValueError(f"unsupported sensor: {sensor}")
+        #     features.append(feature)
 
-        if not self.training:
-            # avoid OOM
-            features = features[::-1]
+        # if not self.training:
+        #     # avoid OOM
+        #     features = features[::-1]
 
         if self.fuser is not None:
             x = self.fuser(features)
@@ -433,6 +432,30 @@ class BEVFusion(Base3DFusionModel):
                     pred_dict = head(x, metas)
                     bboxes = head.get_bboxes(pred_dict, metas)
                     for k, (boxes, scores, labels) in enumerate(bboxes):
+                            # if self.test_cfg['filter_empty']:
+                            #     import numpy as np
+                            #     # box_idx = boxes.points_in_boxes(points[0][:, :3].type(torch.float32))
+                                
+                            #     point_indices = box_np_ops.points_in_rbbox(points[0].cpu().numpy().astype(np.float32), boxes.tensor.cpu().numpy())
+                            #     keep = point_indices.sum(axis=0).astype(bool)
+                            #     boxes = boxes[keep]
+                            #     scores = scores[keep]
+                            #     labels = labels[keep]
+                        # tta_double_flip = metas_tta[0]['tta_double_flip']
+                        # tta_scale = metas_tta[0]['tta_scale']
+                        # tta_rotation = metas_tta[0]['tta_rotation']
+                        # if tta_double_flip is not None:
+                        #     if tta_double_flip[0]:
+                        #         boxes.flip("vertical")
+                        #         # boxes[:, 0] = -boxes[:, 0]
+                        #     if tta_double_flip[1]:
+                        #         boxes.flip("horizontal")
+                        #         # boxes[:, 1] = -boxes[:, 1]
+                        # if tta_scale is not None:
+                        #     boxes.scale(1/tta_scale)
+                        # if tta_rotation is not None:
+                        #     boxes.rotate(-tta_rotation)
+                        
                         outputs[k].update(
                             {
                                 "boxes_3d": boxes.to("cpu"),

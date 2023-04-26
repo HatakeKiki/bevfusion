@@ -6,3 +6,5 @@ from .sparse_encoder import *
 from .pillar_encoder import *
 from .vovnet import *
 from .dla import *
+from .swin_transformer import *
+from .cbnet import *

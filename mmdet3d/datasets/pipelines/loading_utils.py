@@ -8,37 +8,35 @@ __all__ = ["load_augmented_point_cloud", "reduce_LiDAR_beams"]
 
 def load_augmented_point_cloud(path, virtual=False, reduce_beams=32):
     # NOTE: following Tianwei's implementation, it is hard coded for nuScenes
-    # print('==============================')
-    # print(path)
-    points = np.fromfile(path, dtype=np.float32).reshape(-1, 5)
     # NOTE: path definition different from Tianwei's implementation.
+    points = np.fromfile(path, dtype=np.float32).reshape(-1, 5)
     tokens = path.split("/")
-    vp_dir = "_VIRTUAL" # if reduce_beams == 32 else f"_VIRTUAL_{reduce_beams}BEAMS"
-    wt_dir = "_VIRTUAL_WEIGHTS"
     seg_path = os.path.join(
         *tokens[:-3],
         "virtual_points",
         tokens[-3],
-        tokens[-2] + vp_dir,
-        tokens[-1] + ".pkl.npy",
-    )
-    wt_path = os.path.join(
-        *tokens[:-3],
-        "virtual_points",
-        tokens[-3],
-        tokens[-2] + wt_dir,
+        tokens[-2] + "_VIRTUAL",
         tokens[-1] + ".pkl.npy",
     )
     if not os.path.exists(seg_path):
         print(seg_path)
         assert False
-    # assert os.path.exists(wt_path)
+        
     data_dict = np.load(seg_path, allow_pickle=True).item()
-    '''
-    with open(wt_path, 'rb') as file:
-        weight_dict = np.load(file, allow_pickle=True)
-        weight_dict = weight_dict.reshape(1, -1)[0, 0]
-    '''
+    
+    # assert os.path.exists(wt_path)
+    # wt_dir = "_VIRTUAL_WEIGHTS"
+    # wt_path = os.path.join(
+    #     *tokens[:-3],
+    #     "virtual_points",
+    #     tokens[-3],
+    #     tokens[-2] + wt_dir,
+    #     tokens[-1] + ".pkl.npy",
+    # )
+    # with open(wt_path, 'rb') as file:
+    #     weight_dict = np.load(file, allow_pickle=True)
+    #     weight_dict = weight_dict.reshape(1, -1)[0, 0]
+
     
     if len(data_dict["real_points_indice"]) > 0:
         average_time = points[data_dict["real_points_indice"]][:, 4].mean()

@@ -65,6 +65,11 @@ class LSSTransform(BaseTransform):
         x = x.view(B * N, C, fH, fW)
 
         x = self.depthnet(x)
+        # import torch
+        # depth = torch.ones((B*N, self.D, fH, fW), dtype=torch.float32, device=x.device)
+        # x = depth.unsqueeze(1) * x.unsqueeze(2)
+        # del depth
+
         depth = x[:, : self.D].softmax(dim=1)
         x = depth.unsqueeze(1) * x[:, self.D : (self.D + self.C)].unsqueeze(2)
 
@@ -75,4 +80,6 @@ class LSSTransform(BaseTransform):
     def forward(self, *args, **kwargs):
         x = super().forward(*args, **kwargs)
         x = self.downsample(x)
+        # import numpy as np
+        # np.save('depth_attn/dep_det_cam_bev_feat', x.detach().cpu().numpy())
         return x

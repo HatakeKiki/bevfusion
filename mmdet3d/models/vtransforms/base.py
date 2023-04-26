@@ -29,6 +29,7 @@ class BaseTransform(nn.Module):
         ybound: Tuple[float, float, float],
         zbound: Tuple[float, float, float],
         dbound: Tuple[float, float, float],
+        bevpool_v2: bool = False,
     ) -> None:
         super().__init__()
         self.in_channels = in_channels
@@ -38,6 +39,7 @@ class BaseTransform(nn.Module):
         self.ybound = ybound
         self.zbound = zbound
         self.dbound = dbound
+        self.bevpool_v2 = bevpool_v2
 
         dx, bx, nx = gen_dx_bx(self.xbound, self.ybound, self.zbound)
         self.dx = nn.Parameter(dx, requires_grad=False)
@@ -123,9 +125,15 @@ class BaseTransform(nn.Module):
 
     def get_cam_feats(self, x):
         raise NotImplementedError
+    
+    def get_cam_feats_depth(self, x):
+        raise NotImplementedError
+    
+    def voxel_pooling_v2(self, geom, depth, feats):
+        raise NotImplementedError
 
     @force_fp32()
-    def bev_pool(self, geom_feats, x, out_bool=None):
+    def bev_pool(self, geom_feats, x, out_bool=None, depth=None, benchmark_vt=False):
         B, N, D, H, W, C = x.shape
         Nprime = B * N * D * H * W
 
@@ -153,21 +161,28 @@ class BaseTransform(nn.Module):
             & (geom_feats[:, 2] < self.nx[2])
         )
         
+        if depth is not None:
+            assert False
+            mask_depth = (depth.reshape(Nprime) > 0.04)
+            kept = kept & mask_depth
+            
         # filter out points that are outside mask
         if out_bool is not None:
+            # assert False
             mask_bool = []
             for i in range(D):
                 mask_bool.append(out_bool)
             mask_bool = torch.stack(mask_bool, axis=1)
             mask_bool = mask_bool.view(Nprime).bool()
-            # kept = kept & mask_bool
-            if (kept & mask_bool).sum() == 0:
-                print('=====================')
-                print(mask_bool.sum())
-                assert False
+            if (mask_bool).sum() == 0:
+                mask_bool[0] = True
+            kept = kept & mask_bool
             
         x = x[kept]
         geom_feats = geom_feats[kept]
+        
+        if benchmark_vt:
+            return x, geom_feats, B, self.nx
 
         x = bev_pool(x, geom_feats, B, self.nx[2], self.nx[0], self.nx[1])
 
@@ -236,6 +251,7 @@ class BaseDepthTransform(BaseTransform):
         metas,
         learned_class=None,
         out_bool=None,
+        benchmark_vt=False,
         **kwargs,
     ):
         rots = sensor2ego[..., :3, :3]
@@ -304,7 +320,19 @@ class BaseDepthTransform(BaseTransform):
             extra_rots=extra_rots,
             extra_trans=extra_trans,
         )
-
-        x = self.get_cam_feats(img, depth, learned_class)
-        x = self.bev_pool(geom, x, out_bool)
+        if benchmark_vt:
+            return img, depth, geom
+        
+        if self.bevpool_v2:
+            # assert False
+            # print('============ BEV Pooling: Version 2 ============')
+            feats, depth = self.get_cam_feats_depth(img, depth)
+            x = self.voxel_pooling_v2(geom, depth, feats, out_bool=out_bool)
+            x = x.transpose(2, 3)
+            
+        else:
+            # assert False
+            # print('============ BEV Pooling: Version 1 ============')
+            x, depth = self.get_cam_feats(img, depth)
+            x = self.bev_pool(geom, x, out_bool=out_bool)
         return x

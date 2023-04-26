@@ -1,0 +1,9 @@
+dbinfos_file: nuscenes_dbinfos_train.pkl
+train_pkl: nuscenes_infos_train.pkl
+val_pkl: nuscenes_infos_val.pkl
+
+gt_paste_stop_epoch: 15
+batch_szie: 4
+
+msda: True
+find_unused_parameters: True

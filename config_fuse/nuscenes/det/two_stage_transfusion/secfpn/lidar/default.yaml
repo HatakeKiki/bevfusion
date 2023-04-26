@@ -1,0 +1,28 @@
+model:
+  encoders:
+    camera:
+      backbone:
+        type: ResNet
+        depth: 50
+        num_stages: 4
+        out_indices: 
+        - 0
+        - 1
+        - 2
+        - 3
+        norm_eval: True
+        norm_cfg:
+          type: BN
+        style: pytorch
+      neck:
+        type: FPN
+        in_channels: [256, 512, 1024, 2048]
+        out_channels: 256
+        num_outs: 5
+
+
+gt_paste_stop_epoch: -1
+freeze_lidar_components: True
+freeze_camera_components: True
+freeze_decoder_head: True
+max_epochs: 10

@@ -1,4 +1,4 @@
-dbinfos_file: nuscenes_dbinfos_virtual.pkl
+dbinfos_file: nuscenes_dbinfos_htc.pkl
 train_pkl: nuscenes_infos_train.pkl
 val_pkl: nuscenes_infos_val.pkl
 

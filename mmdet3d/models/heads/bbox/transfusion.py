@@ -16,6 +16,7 @@ from mmdet3d.core import (
 )
 from mmdet3d.models.builder import HEADS, build_loss
 from mmdet3d.models.utils import FFN, PositionEmbeddingLearned, TransformerDecoderLayer
+
 from mmdet3d.ops.iou3d.iou3d_utils import nms_gpu
 from mmdet.core import (
     AssignResult,
@@ -67,6 +68,7 @@ class TransFusionHead(nn.Module):
         train_cfg=None,
         test_cfg=None,
         bbox_coder=None,
+        roi_extract=False,
     ):
         super(TransFusionHead, self).__init__()
 
@@ -143,15 +145,27 @@ class TransFusionHead(nn.Module):
                     cross_posembed=PositionEmbeddingLearned(2, hidden_channel),
                 )
             )
-
+        self.roi_extract = roi_extract
+        if roi_extract:
+            self._init_roi_extractor()
+            head_num = self.num_decoder_layers + 1
+        else:
+            head_num = self.num_decoder_layers
+            
         # Prediction Head
         self.prediction_heads = nn.ModuleList()
-        for i in range(self.num_decoder_layers):
+        for i in range(head_num):
             heads = copy.deepcopy(common_heads)
             heads.update(dict(heatmap=(self.num_classes, num_heatmap_convs)))
+            
+            if roi_extract and (i == (head_num - 1)):
+                input_channel = hidden_channel * 2
+            else:
+                input_channel = hidden_channel
+                
             self.prediction_heads.append(
                 FFN(
-                    hidden_channel,
+                    input_channel,
                     heads,
                     conv_cfg=conv_cfg,
                     norm_cfg=norm_cfg,
@@ -170,6 +184,10 @@ class TransFusionHead(nn.Module):
         self.img_feat_pos = None
         self.img_feat_collapsed_pos = None
 
+    def _init_roi_extractor(self):
+        raise NotImplementedError
+        # return
+        
     def create_2D_grid(self, x_size, y_size):
         meshgrid = [[0, x_size - 1, x_size], [0, y_size - 1, y_size]]
         # NOTE: modified
@@ -235,8 +253,8 @@ class TransFusionHead(nn.Module):
         # image guided query initialization
         #################################
         dense_heatmap = self.heatmap_head(lidar_feat)
-        dense_heatmap_img = None
         heatmap = dense_heatmap.detach().sigmoid()
+        np.save('/home/kiki/jq/lss/bevfusion/visual/heatmap_l', heatmap.cpu().numpy())
         padding = self.nms_kernel_size // 2
         local_max = torch.zeros_like(heatmap)
         # equals to nms radius = voxel_size * out_size_factor * kenel_size
@@ -613,10 +631,11 @@ class TransFusionHead(nn.Module):
         loss_dict = dict()
 
         # compute heatmap loss
+        avg_factor=max(heatmap.eq(1).float().sum().item(), 1)
         loss_heatmap = self.loss_heatmap(
             clip_sigmoid(preds_dict["dense_heatmap"]),
             heatmap,
-            avg_factor=max(heatmap.eq(1).float().sum().item(), 1),
+            avg_factor=avg_factor,
         )
         loss_dict["loss_heatmap"] = loss_heatmap
 
@@ -729,6 +748,7 @@ class TransFusionHead(nn.Module):
                 self.query_labels, num_classes=self.num_classes
             ).permute(0, 2, 1)
             batch_score = batch_score * preds_dict[0]["query_heatmap_score"] * one_hot
+            # batch_score = batch_score * one_hot
 
             batch_center = preds_dict[0]["center"][..., -self.num_proposals :]
             batch_height = preds_dict[0]["height"][..., -self.num_proposals :]

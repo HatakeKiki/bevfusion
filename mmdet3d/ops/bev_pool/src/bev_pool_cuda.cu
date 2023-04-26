@@ -29,14 +29,14 @@ __global__ void bev_pool_kernel(int b, int d, int h, int w, int n, int c, int n_
   if (index >= n_intervals) return;
   int interval_start = interval_starts[index];
   int interval_length = interval_lengths[index];
-  const int* cur_geom_feats = geom_feats + interval_start * 4;
-  const float* cur_x = x + interval_start * c + cur_c;
-  float* cur_out = out + cur_geom_feats[3] * d * h * w * c + 
+  const int* cur_geom_feats = geom_feats + interval_start * 4;  // BEV index (4 for dimension)
+  const float* cur_x = x + interval_start * c + cur_c;          // channel-wise pseudo points feature
+  float* cur_out = out + cur_geom_feats[3] * d * h * w * c +    // channel-wise BEV feature at the index
     cur_geom_feats[2] * h * w * c + cur_geom_feats[0] * w * c + 
     cur_geom_feats[1] * c + cur_c;
   float psum = 0;
   for(int i = 0; i < interval_length; i++){
-    psum += cur_x[i * c];
+    psum += cur_x[i * c];                     // feature sum, at one BEV, N pseudo points, 1 specific channel
   }
   *cur_out = psum;
 }

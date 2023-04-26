@@ -35,21 +35,3 @@ model:
     type: ConvFuser
     in_channels: [80, 256]
     out_channels: 256
-
-optimizer:
-  type: AdamW
-  lr: 2.0e-4
-  betas: [0.9, 0.999]
-  weight_decay: 0.05
-  paramwise_cfg:
-    custom_keys:
-      absolute_pos_embed:
-        decay_mult: 0
-      relative_position_bias_table:
-        decay_mult: 0
-      norm:
-        decay_mult: 0
-
-lr_config:
-  policy: step
-  step: [4, 5]

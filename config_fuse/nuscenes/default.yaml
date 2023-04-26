@@ -179,7 +179,7 @@ train_pipeline:
     keys:
       - img
       - points
-      - mask
+      # - mask
       - gt_bboxes_3d
       - gt_labels_3d
       - gt_masks_bev
@@ -255,7 +255,7 @@ test_pipeline:
     keys:
       - img
       - points
-      - mask
+      # - mask
       - gt_bboxes_3d
       - gt_labels_3d
       - gt_masks_bev

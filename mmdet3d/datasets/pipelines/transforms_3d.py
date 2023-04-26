@@ -20,6 +20,7 @@ from mmdet.datasets.builder import PIPELINES
 
 from ..builder import OBJECTSAMPLERS
 from .utils import noise_per_object_v3_
+import copy
 
 
 @PIPELINES.register_module()
@@ -59,6 +60,7 @@ class ImageAug3D:
             flip = False
             rotate = 0
         return resize, resize_dims, crop, flip, rotate
+    
     def img_transform_rotation_first(
         self, img, rotation, translation, resize, resize_dims, crop, flip, rotate, ori_shape, img_only=False,
     ):
@@ -175,8 +177,10 @@ class ImageAug3D:
                     img_only=True,
                 )
                 new_masks.append(new_mask)
-            # print(type(new_img))
-            # new_img.save('/home/kiki/jq/lss/bevfusion/data/img_' + str(idx) + '.png')
+            # import os
+            # img_path = '/home/kiki/jq/lss/bevfusion/visual/img_' + str(idx) + '.png'
+            # if not os.path.isfile(img_path) and (idx == 1):
+            #     new_img.save(img_path)
             # new_mask.save('/home/kiki/jq/lss/bevfusion/data/mask_' + str(idx) + '.png')
             # print('=================================')
         # assert False
@@ -224,6 +228,39 @@ class GlobalRotScaleTrans:
 
         data["lidar_aug_matrix"] = transform
         return data
+    
+    # def __call__(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    #     transform = np.eye(4).astype(np.float32)
+
+    #     scale = random.uniform(*self.resize_lim)
+    #     theta = random.uniform(*self.rot_lim)
+    #     translation = np.array([random.normal(0, self.trans_lim) for i in range(3)])
+    #     rotation = np.eye(3)
+        
+    #     if "points" in data:
+    #         data["points"].rotate(-theta)
+    #         data["points"].translate(translation)
+    #         data["points"].scale(scale)
+            
+    #     gt_boxes = copy.deepcopy(data["gt_bboxes_3d"])
+    #     rotation = rotation @ gt_boxes.rotate(theta).numpy()
+    #     gt_boxes.translate(translation)
+    #     gt_boxes.scale(scale)
+    #     gt_boxes.rotate(-theta).numpy()
+            
+    #     if self.is_train:
+    #         data["gt_bboxes_3d"] = gt_boxes
+
+    #     transform[:3, :3] = rotation.T * scale
+    #     transform[:3, 3] = translation * scale
+
+    #     data["lidar_aug_matrix"] = transform
+        
+    #     if not self.is_train:
+    #         data["tta_rotation"] = theta
+    #         data["tta_scale"] = scale
+            
+    #     return data
 
 
 @PIPELINES.register_module()
@@ -342,6 +379,39 @@ class RandomFlip3D:
         data["lidar_aug_matrix"][:3, :] = rotation @ data["lidar_aug_matrix"][:3, :]
         return data
 
+@PIPELINES.register_module()
+class DoubleFlip3D:
+    def __init__(self, flip_type=0):
+        assert flip_type in [0, 1, 2, 3]
+        if flip_type == 0:
+            self.flip_horizontal = 0
+            self.flip_vertical = 0
+        elif flip_type == 1:
+            self.flip_horizontal = 1
+            self.flip_vertical = 0
+        elif flip_type == 2:
+            self.flip_horizontal = 0
+            self.flip_vertical = 1
+        elif flip_type == 3:
+            self.flip_horizontal = 1
+            self.flip_vertical = 1
+            
+    def __call__(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        rotation = np.eye(3)
+        if self.flip_horizontal:
+            rotation = np.array([[1, 0, 0], [0, -1, 0], [0, 0, 1]]) @ rotation
+            if "points" in data:
+                data["points"].flip("horizontal")
+
+        if self.flip_vertical:
+            rotation = np.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]]) @ rotation
+            if "points" in data:
+                data["points"].flip("vertical")
+
+        data["lidar_aug_matrix"][:3, :] = rotation @ data["lidar_aug_matrix"][:3, :]
+        data["tta_double_flip"] = [self.flip_vertical, self.flip_horizontal]
+        return data
+    
 
 @PIPELINES.register_module()
 class ObjectPaste:

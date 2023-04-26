@@ -79,8 +79,12 @@ def visualize_camera(
         coords[:, 1] /= coords[:, 2]
 
         coords = coords[..., :2].reshape(-1, 8, 2)
+        # np.save('visual/coords_r', coords)
         for index in range(coords.shape[0]):
             name = classes[labels[index]]
+        #     if (name == 'traffic_cone') and (abs(coords[index]).max() > 5):
+        #         name = 'bicycle'
+                
             for start, end in [
                 (0, 1),
                 (0, 3),
@@ -136,13 +140,18 @@ def visualize_lidar(
             lidar[:, 0],
             lidar[:, 1],
             s=radius,
-            c="white",
+            c="black",
         )
 
     if bboxes is not None and len(bboxes) > 0:
         coords = bboxes.corners[:, [0, 3, 7, 4, 0], :2]
         for index in range(coords.shape[0]):
             name = classes[labels[index]]
+            # if (name == 'traffic_cone') and (abs(coords[index]).max() > 5):
+            #     print(abs(coords[index]).max())
+            #     print(OBJECT_PALETTE[name])
+            #     name = 'bicycle'
+            #     print(OBJECT_PALETTE[name])
             plt.plot(
                 coords[index, :, 0],
                 coords[index, :, 1],
@@ -154,7 +163,8 @@ def visualize_lidar(
     fig.savefig(
         fpath,
         dpi=100,
-        facecolor="black",
+        facecolor="white",
+        # transparent=True,
         format="png",
         bbox_inches="tight",
         pad_inches=0,
