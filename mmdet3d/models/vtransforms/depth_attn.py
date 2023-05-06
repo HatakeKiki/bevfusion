@@ -6,7 +6,6 @@ from mmcv.runner import force_fp32
 from mmdet3d.models.vtransforms.base import BaseTransform
 from mmdet3d.modules.depth_attn_layer import DepthAttnLayer
 from mmcv.cnn.bricks.transformer import build_positional_encoding
-from mmdet3d.modules.bev_positional_encoding import SineBEVPositionalEncoding
 from mmcv.cnn.bricks.transformer import build_attention
 
 
@@ -28,11 +27,9 @@ class DepthAttnTransform(BaseTransform):
         depth_attn_layers: int = 1,
         depth_attn_cfg: dict = None,
         positional_encoding_key=None,
-        positional_encoding=dict(
-            type=SineBEVPositionalEncoding,
-            num_feats=128,
-            normalize=True),
+        positional_encoding=None,
         downsample: int=2,
+        with_bev_embedding=True,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -46,11 +43,18 @@ class DepthAttnTransform(BaseTransform):
             dbound=dbound,
         )
         
+        self.with_bev_embedding = with_bev_embedding
+        self.in_channels = in_channels
         
-        self.bev_embedding = nn.Embedding(
-                self.nx[0] * self.nx[1], in_channels)
+        if self.with_bev_embedding:
+            self.bev_embedding = nn.Embedding(
+                    self.nx[0] * self.nx[1], in_channels)
         
-        self.positional_encoding = build_positional_encoding(positional_encoding)
+        if positional_encoding is not None:
+            self.positional_encoding = build_positional_encoding(positional_encoding)
+        else:
+            self.positional_encoding = None
+            
         if positional_encoding_key is not None:
             self.positional_encoding_key = build_positional_encoding(positional_encoding_key)
         else:
@@ -64,20 +68,7 @@ class DepthAttnTransform(BaseTransform):
             self.depth_attn.append(
                 build_attention(depth_attn_cfg)
             )
-            
-        ## LSS
-        # self.depthnet = nn.Conv2d(in_channels, self.C, 1)
-        
-        # self.depthnet = nn.Sequential(
-        #     nn.Conv2d(in_channels, in_channels, 3, padding=1),
-        #     nn.BatchNorm2d(in_channels),
-        #     nn.ReLU(True),
-        #     nn.Conv2d(in_channels, in_channels, 3, padding=1),
-        #     nn.BatchNorm2d(in_channels),
-        #     nn.ReLU(True),
-        #     nn.Conv2d(in_channels, self.C, 1),
-        # )
-        
+
         if downsample > 1:
             assert downsample == 2, downsample
             self.downsample = nn.Sequential(
@@ -223,42 +214,42 @@ class DepthAttnTransform(BaseTransform):
         bs, N, C, _, _ = feat_img.shape
         output_shape = (bs, int(self.nx[0]), int(self.nx[1]), C)
         
-        # dtype = feat_img.dtype
-        bev_queries = self.bev_embedding.weight.to(feat_img.dtype).view(self.nx[0], self.nx[1], C).permute(2, 0, 1).unsqueeze(0)
-        query_depth = bev_queries.repeat(bs, 1, 1, 1).permute(0, 2, 3, 1).contiguous().view(-1, C)
+        if self.with_bev_embedding:
+            bev_queries = self.bev_embedding.weight.to(feat_img.dtype).view(self.nx[0], self.nx[1], C).permute(2, 0, 1).unsqueeze(0)
+            query_pos = bev_queries.repeat(bs, 1, 1, 1).permute(0, 2, 3, 1).contiguous().view(-1, C)
+        else:
+            query_pos=None
         
-        pos_bev = self.positional_encoding(self.pos_bev.to(bev_queries.device))
-        pos_bev = pos_bev.repeat(bs, 1, 1).permute(0, 2, 1).contiguous().view(-1, C)
+        if self.positional_encoding is not None:
+            query_depth = self.positional_encoding(self.pos_bev.to(feat_img.device))
+            query_depth = query_depth.repeat(bs, 1, 1).permute(0, 2, 1).contiguous().view(-1, C)
+        else:
+            assert self.with_bev_embedding
+            query_depth = torch.zeros_like(query_pos)
         
         if self.positional_encoding_key is not None:
             mask = torch.zeros(feat_img.shape[-2:], device=feat_img.device).unsqueeze(0)
-            pos_key = self.positional_encoding_key(mask)
-            pos_key = pos_key.repeat(bs*N, 1, 1, 1)
-            pos_key = pos_key.permute(0, 2, 3, 1).contiguous().view(-1, C)
+            key_pos = self.positional_encoding_key(mask)
+            key_pos = key_pos.repeat(bs*N, 1, 1, 1)
+            key_pos = key_pos.permute(0, 2, 3, 1).contiguous().view(-1, C)
         else:
-            pos_key = None
-        
+            key_pos = None
+        # [bs, N, C, h, w] -> [bs, N, h, w, C]
         key = feat_img.permute(0, 1, 3, 4, 2).contiguous().view(-1, C)
         value = key
         
-        # query_sem = feat_pts.permute(0, 3, 2, 1).contiguous().view(-1, C)
-        # query_sem = feat_pts.permute(0, 2, 3, 1).contiguous().view(-1, C)
-        query_sem = None
+        if feat_pts is not None:
+            # [bs, C, H, W] -> [bs, W, H, C]
+            query_sem = feat_pts.permute(0, 3, 2, 1).contiguous().view(-1, C)
+        else:
+            query_sem = None
         
-        ## LSS
-        # x = feat_img
-        # B, N, C, fH, fW = x.shape
-        # x = x.view(B * N, C, fH, fW)
-        # x = self.depthnet(x).view(B, N, -1, fH, fW)
-        # content_c = x.shape[2]
-        # value = x.permute(0, 1, 3, 4, 2).contiguous().view(-1, content_c)
-        # output_shape = (bs, int(self.nx[0]), int(self.nx[1]), content_c)
-
+        
         for layer in self.depth_attn:
             output = layer(query_depth=query_depth, query_sem=query_sem, key=key, value=value, 
                            ranks_feat_f=ranks_feat, ranks_bev_f=ranks_bev, 
                            interval_starts_f=interval_starts, interval_lengths_f=interval_lengths,
-                           output_shape=output_shape, query_pos=pos_bev, key_pos=pos_key)
+                           output_shape=output_shape, query_pos=query_pos, key_pos=key_pos)
             query_depth = output
         
         # Reverse W and H
@@ -267,7 +258,5 @@ class DepthAttnTransform(BaseTransform):
         x = x.permute(0, 3, 2, 1)
         x = self.downsample(x)
         
-        # import numpy as np
-        # np.save('depth_attn/depth_attn_cam_bev_feat', x.detach().cpu().numpy())
         
         return x

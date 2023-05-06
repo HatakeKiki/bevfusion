@@ -39,36 +39,36 @@ class DepthLSSTransform(BaseDepthTransform):
             bevpool_v2=bevpool_v2,
         )
         # TODO: Lidar points for depth
-        # self.dtransform = nn.Sequential(
-        #     nn.Conv2d(1, 8, 1),
-        #     nn.BatchNorm2d(8),
-        #     nn.ReLU(True),
-        #     nn.Conv2d(8, 32, 5, stride=4, padding=2),
-        #     nn.BatchNorm2d(32),
-        #     nn.ReLU(True),
-        #     nn.Conv2d(32, 64, 5, stride=2, padding=2),
-        #     nn.BatchNorm2d(64),
-        #     nn.ReLU(True),
-        # )
+        self.dtransform = nn.Sequential(
+            nn.Conv2d(1, 8, 1),
+            nn.BatchNorm2d(8),
+            nn.ReLU(True),
+            nn.Conv2d(8, 32, 5, stride=4, padding=2),
+            nn.BatchNorm2d(32),
+            nn.ReLU(True),
+            nn.Conv2d(32, 64, 5, stride=2, padding=2),
+            nn.BatchNorm2d(64),
+            nn.ReLU(True),
+        )
+        self.depthnet = nn.Sequential(
+            nn.Conv2d(in_channels + 64, in_channels, 3, padding=1),
+            nn.BatchNorm2d(in_channels),
+            nn.ReLU(True),
+            nn.Conv2d(in_channels, in_channels, 3, padding=1),
+            nn.BatchNorm2d(in_channels),
+            nn.ReLU(True),
+            nn.Conv2d(in_channels, self.D + self.C, 1),
+        )
+        
         # self.depthnet = nn.Sequential(
-        #     nn.Conv2d(in_channels + 64, in_channels, 3, padding=1),
+        #     nn.Conv2d(in_channels, in_channels, 3, padding=1),
         #     nn.BatchNorm2d(in_channels),
         #     nn.ReLU(True),
         #     nn.Conv2d(in_channels, in_channels, 3, padding=1),
         #     nn.BatchNorm2d(in_channels),
         #     nn.ReLU(True),
-        #     nn.Conv2d(in_channels, self.D + self.C, 1),
+        #     nn.Conv2d(in_channels, self.C, 1),
         # )
-        
-        self.depthnet = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels, 3, padding=1),
-            nn.BatchNorm2d(in_channels),
-            nn.ReLU(True),
-            nn.Conv2d(in_channels, in_channels, 3, padding=1),
-            nn.BatchNorm2d(in_channels),
-            nn.ReLU(True),
-            nn.Conv2d(in_channels, self.C, 1),
-        )
                 
         if downsample > 1:
             assert downsample == 2, downsample
@@ -101,34 +101,19 @@ class DepthLSSTransform(BaseDepthTransform):
         x = x.view(B * N, C, fH, fW)
 
         # TODO: Lidar points for depth
-        # d = self.dtransform(d)
-        # x = torch.cat([d, x], dim=1)
-        # x = self.depthnet(x)
-        # depth = x[:, : self.D].softmax(dim=1)
-        # x = depth.unsqueeze(1) * x[:, self.D : (self.D + self.C)].unsqueeze(2)
-        
-
-        # Uniform depth distribution
+        d = self.dtransform(d)
+        x = torch.cat([d, x], dim=1)
         x = self.depthnet(x)
-        depth = torch.ones((x.shape[0], self.D, x.shape[2], x.shape[3]), dtype=torch.float32, device=x.device)
-        x = depth.unsqueeze(1) * x.unsqueeze(2)
-        del depth
-        depth = None
-        
-        
-        
-        # save_d = depth.cpu().numpy()
-        # import numpy as np
-        # np.save('/home/kiki/jq/MVP/depth_bevc.npy', save_d)
+        depth = x[:, : self.D].softmax(dim=1)
+        x = depth.unsqueeze(1) * x[:, self.D : (self.D + self.C)].unsqueeze(2)
         
 
-        # Predicted ray distribution
-        # depth = x[:, :1].softmax(dim=1)
-        # depth_list = []
-        # for i in range(118):
-        #     depth_list.append(depth)
-        # depth = torch.stack(depth_list, dim=2)
-        # x = depth * x[:, 1 : (1 + self.C)].unsqueeze(2)
+        # # Uniform depth distribution
+        # x = self.depthnet(x)
+        # depth = torch.ones((x.shape[0], self.D, x.shape[2], x.shape[3]), dtype=torch.float32, device=x.device)
+        # x = depth.unsqueeze(1) * x.unsqueeze(2)
+        # del depth
+        # depth = None
 
         x = x.view(B, N, self.C, self.D, fH, fW)
         x = x.permute(0, 1, 3, 4, 5, 2)
@@ -254,16 +239,10 @@ class DepthLSSTransform(BaseDepthTransform):
                             feat.shape[-1])  # (B, Z, Y, X, C)
         if benchmark_vt:
             return depth, feat, ranks_depth, ranks_feat, ranks_bev,bev_feat_shape, interval_starts, interval_lengths
-        import numpy as np
-        np.save('/home/kiki/jq/lss/bevfusion/depth_attn/ranks_feat', \
-            ranks_feat.detach().cpu().numpy())
-        np.save('/home/kiki/jq/lss/bevfusion/depth_attn/ranks_bev', \
-            ranks_bev.detach().cpu().numpy())
-        np.save('/home/kiki/jq/lss/bevfusion/depth_attn/interval_starts', \
-            interval_starts.detach().cpu().numpy())
-        np.save('/home/kiki/jq/lss/bevfusion/depth_attn/interval_lengths', \
-            interval_lengths.detach().cpu().numpy())
         
+        
+        a = interval_lengths.max()
+
         a = interval_lengths.max()
         bev_feat = bev_pool_v2(depth, feat, ranks_depth, ranks_feat, ranks_bev,
                                 bev_feat_shape, interval_starts,

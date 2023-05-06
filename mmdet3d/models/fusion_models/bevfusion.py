@@ -272,15 +272,6 @@ class BEVFusion(Base3DFusionModel):
         metas_tta=None,
         **kwargs,
     ):
-        # import numpy as np
-        # np.save('/home/kiki/jq/lss/bevfusion/depth_attn/camera_intrinsics', \
-        #     camera_intrinsics.detach().cpu().numpy())
-        # np.save('/home/kiki/jq/lss/bevfusion/depth_attn/camera2lidar', \
-        #     camera2lidar.detach().cpu().numpy())
-        # np.save('/home/kiki/jq/lss/bevfusion/depth_attn/img_aug_matrix', \
-        #     img_aug_matrix.detach().cpu().numpy())
-        # np.save('/home/kiki/jq/lss/bevfusion/depth_attn/lidar_aug_matrix', \
-        #     lidar_aug_matrix.detach().cpu().numpy())
         
         if isinstance(img, list):
             raise NotImplementedError
@@ -369,34 +360,6 @@ class BEVFusion(Base3DFusionModel):
             features.append(img_feat)
                 
         features = features[::-1]
-        # features = []
-        # for sensor in (
-        #     self.encoders if self.training else list(self.encoders.keys())[::-1]
-        # ):
-        #     if sensor == "camera":
-        #         feature = self.extract_camera_features(
-        #             img,
-        #             points,
-        #             camera2ego,
-        #             lidar2ego,
-        #             lidar2camera,
-        #             lidar2image,
-        #             camera_intrinsics,
-        #             camera2lidar,
-        #             img_aug_matrix,
-        #             lidar_aug_matrix,
-        #             metas,
-        #             mask
-        #         )
-        #     elif sensor == "lidar":
-        #         feature = self.extract_lidar_features(points)
-        #     else:
-        #         raise ValueError(f"unsupported sensor: {sensor}")
-        #     features.append(feature)
-
-        # if not self.training:
-        #     # avoid OOM
-        #     features = features[::-1]
 
         if self.fuser is not None:
             x = self.fuser(features)

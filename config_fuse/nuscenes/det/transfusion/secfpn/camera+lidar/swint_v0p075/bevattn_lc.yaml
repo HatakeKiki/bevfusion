@@ -12,8 +12,9 @@ model:
         depth_attn_layers: 1
         depth_attn_cfg:
           type: DepthAttnLayer
+          with_res: False
           embed_dim: 256
-          num_heads: 1
+          num_heads: 8
           depth_attn: true
           sem_attn: false
           ffn_cfgs:
@@ -47,18 +48,22 @@ model:
 freeze_lidar_components: True
 freeze_camera_components: True
 
+# optimizer:
+#   type: AdamW
+#   lr: 1.0e-4
+#   weight_decay: 0.01
+#   paramwise_cfg:
+#     custom_keys: 
+#       camera.neck:
+#         lr_mult: 0.1
+#         decay_mult: 1.0
+#       vtransform:
+#         lr_mult: 0.1
+#         decay_mult: 1.0
+
 max_epochs: 6
 gt_paste_stop_epoch: -1
 
 data:
   samples_per_gpu: 2
   workers_per_gpu: 4
-
-
-# image_size: [384, 1056]
-# augment2d:
-#   resize: [[0.57, 0.825], [0.72, 0.72]]
-#   rotate: [-5.4, 5.4]
-#   gridmask:
-#     prob: 0.0
-#     fixed_prob: true

@@ -29,10 +29,10 @@ model:
               inplace: true
           norm_cfg:
             type: LN
-        positional_encoding:
-          type: LearnedBEVPositionalEncoding
-          num_feats: 256
-          input_channel: 2
+        # positional_encoding:
+        #   type: LearnedDepthPositionalEncoding
+        #   num_feats: 256
+        #   input_channel: 2
         downsample: 2
   decoder:
     backbone:
