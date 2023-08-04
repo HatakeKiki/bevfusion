@@ -124,7 +124,15 @@ class HungarianAssigner3D(BaseAssigner):
         if linear_sum_assignment is None:
             raise ImportError('Please run "pip install scipy" '
                               'to install scipy first.')
-        matched_row_inds, matched_col_inds = linear_sum_assignment(cost)
+        try:
+            matched_row_inds, matched_col_inds = linear_sum_assignment(cost)
+        except:
+            print(gt_bboxes)
+            print(gt_labels)
+            print(bboxes)
+            print(cls_pred)
+            print(cost)
+            
         matched_row_inds = torch.from_numpy(matched_row_inds).to(bboxes.device)
         matched_col_inds = torch.from_numpy(matched_col_inds).to(bboxes.device)
 

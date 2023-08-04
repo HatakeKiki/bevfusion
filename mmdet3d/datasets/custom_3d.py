@@ -10,6 +10,7 @@ from mmdet.datasets import DATASETS
 from ..core.bbox import get_box_type
 from .pipelines import Compose
 from .utils import extract_result_dict
+import random
 
 
 @DATASETS.register_module()
@@ -80,6 +81,8 @@ class Custom3DDataset(Dataset):
             for transform in self.pipeline.transforms:
                 if hasattr(transform, "set_epoch"):
                     transform.set_epoch(epoch)
+                    
+        # random.shuffle(self.data_infos)
         
     def load_annotations(self, ann_file):
         """Load annotations from ann_file.

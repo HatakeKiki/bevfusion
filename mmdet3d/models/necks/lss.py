@@ -23,9 +23,12 @@ class LSSFPN(nn.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.scale_factor = scale_factor
-
+        
+        in_channel = 0
+        for channel in in_channels:
+            in_channel += channel 
         self.fuse = nn.Sequential(
-            nn.Conv2d(in_channels[0] + in_channels[1], out_channels, 1, bias=False),
+            nn.Conv2d(in_channel, out_channels, 1, bias=False),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(True),
             nn.Conv2d(out_channels, out_channels, 3, padding=1, bias=False),

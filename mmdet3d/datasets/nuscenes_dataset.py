@@ -208,6 +208,8 @@ class NuScenesDataset(Custom3DDataset):
 
     def get_data_info(self, index: int) -> Dict[str, Any]:
         info = self.data_infos[index]
+        if ('n015-2018-07-11-11-54-16+0800__LIDAR_TOP__1531281440299931' in info["lidar_path"]):
+            print('===')
 
         data = dict(
             token=info["token"],

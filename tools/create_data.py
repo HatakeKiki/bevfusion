@@ -41,14 +41,15 @@ def nuscenes_data_prep(
         info_val_path = osp.join(root_path, f"{info_prefix}_infos_val.pkl")
         # nuscenes_converter.export_2d_annotation(root_path, info_train_path, version=version)
         # nuscenes_converter.export_2d_annotation(root_path, info_val_path, version=version)
-    # '''
-    create_groundtruth_database(
-        dataset_name,
-        root_path,
-        info_prefix,
-        f"{out_dir}/{info_prefix}_infos_train.pkl",
-        load_augmented=load_augmented,
-    )
+        # '''
+        
+    # create_groundtruth_database(
+    #     dataset_name,
+    #     root_path,
+    #     info_prefix,
+    #     f"{out_dir}/{info_prefix}_infos_val.pkl",
+    #     load_augmented=load_augmented,
+    # )
     # '''
 
 
@@ -91,11 +92,12 @@ args = parser.parse_args()
 
 if __name__ == "__main__":
     load_augmented = "mvp"
-    if args.virtual:
-        if args.painted:
-            load_augmented = "mvp"
-        else:
-            load_augmented = "pointpainting"
+    load_augmented = None
+    # if args.virtual:
+    #     if args.painted:
+    #         load_augmented = "mvp"
+    #     else:
+    #         load_augmented = "pointpainting"
 
     if args.dataset == "nuscenes" and args.version != "v1.0-mini":
         

@@ -1,0 +1,31 @@
+model:
+  fuser:
+    type: ConvFuser
+    in_channels: [256, 256]
+    out_channels: 256
+
+freeze_lidar_components: True
+freeze_camera_components: True
+
+max_epochs: 6
+gt_paste_stop_epoch: -1
+
+data:
+  samples_per_gpu: 4
+  workers_per_gpu: 4
+
+# image_size: [512, 1408]
+# augment2d:
+#   resize: [[0.76, 1.10], [0.96, 0.96]]
+#   rotate: [-5.4, 5.4]
+#   gridmask:
+#     prob: 0.0
+#     fixed_prob: true
+
+image_size: [384, 1056]
+augment2d:
+  resize: [[0.57, 0.825], [0.72, 0.72]]
+  rotate: [-5.4, 5.4]
+  gridmask:
+    prob: 0.0
+    fixed_prob: true

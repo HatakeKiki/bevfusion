@@ -25,6 +25,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="MMDet test (and eval) a model")
     parser.add_argument("config", help="test config file path")
     parser.add_argument("checkpoint", help="checkpoint file")
+    parser.add_argument("--not_dist", action='store_true', default=False)
     parser.add_argument(
         "--topN",
         type=int,
@@ -119,7 +120,8 @@ def parse_args():
 
 def main():
     args = parse_args()
-    dist.init()
+    if not args.not_dist:
+        dist.init()
 
     torch.backends.cudnn.benchmark = True
     torch.cuda.set_device(dist.local_rank())
@@ -136,15 +138,17 @@ def main():
     if args.out is not None and not args.out.endswith((".pkl", ".pickle")):
         raise ValueError("The output file must be a pkl file.")
 
-    configs.load(args.config, recursive=True)
-    configs_ = recursive_eval(configs)
-    if args.topN is not None:
-        configs_['model']['heads']['object']['num_proposals'] = args.topN
-    cfg = Config(configs_, filename=args.config)
-    # print(cfg)
-
-    if args.cfg_options is not None:
-        cfg.merge_from_dict(args.cfg_options)
+    if args.config.split('.')[-1] == 'py':
+        cfg = Config.fromfile(args.config)
+    elif args.config.split('.')[-1] == 'yaml':
+        configs.load(args.config, recursive=True)
+        configs_ = recursive_eval(configs)
+        if args.topN is not None:
+            configs_['model']['heads']['object']['num_proposals'] = args.topN
+        cfg = Config(configs_, filename=args.config)
+        if args.cfg_options is not None:
+            cfg.merge_from_dict(args.cfg_options)
+            
     # set cudnn_benchmark
     if cfg.get("cudnn_benchmark", False):
         torch.backends.cudnn.benchmark = True
@@ -169,7 +173,7 @@ def main():
                 ds_cfg.pipeline = replace_ImageToTensor(ds_cfg.pipeline)
 
     # init distributed env first, since logger depends on the dist info.
-    distributed = True
+    distributed = (not args.not_dist)
 
     # set random seeds
     if args.seed is not None:

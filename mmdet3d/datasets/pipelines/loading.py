@@ -66,7 +66,9 @@ class LoadMultiViewImageFromFiles:
         for name in filename:
             images.append(Image.open(name))
             if self.with_mask:
-                masks.append(Image.open(name[:24] + 'MASK/' + name[24:-3] + 'png'))
+                # mask_path = name[:24] + 'MASK/' + name[24:-3] + 'png'
+                mask_path = 'data/nuscenes/' + 'mask_default.png'
+                masks.append(Image.open(mask_path))
         assert len(images) != 0
         results["mask"] = masks
                 
@@ -451,6 +453,7 @@ class LoadPointsFromFile:
             points, points_dim=points.shape[-1], attribute_dims=attribute_dims
         )
         results["points"] = points
+        results['points_single'] = points
 
         return results
 

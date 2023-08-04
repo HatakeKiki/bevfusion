@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 
-def scatter_nd(indices, updates, shape):
+def scatter_nd(indices, updates, shape, return_ind=False):
     """pytorch edition of tensorflow scatter_nd.
 
     this function don't contain except handle code. so use this carefully when
@@ -15,6 +15,15 @@ def scatter_nd(indices, updates, shape):
     slices = [flatted_indices[:, i] for i in range(ndim)]
     slices += [Ellipsis]
     ret[slices] = updates.view(*output_shape)
+    
+    if return_ind:
+        updates_indices = torch.ones((indices.shape[0], 1), dtype=torch.bool, device=updates.device)
+        ret_indices = torch.zeros(*(shape[:-1] + [1]), dtype=updates_indices.dtype, device=updates.device)
+        output_shape_ind = list(indices.shape[:-1]) + [1]
+        ret_indices[slices] = updates_indices.view(*output_shape_ind)
+        
+        return ret, ret_indices
+    
     return ret
 
 
@@ -46,17 +55,29 @@ class SparseConvTensor:
             return self.indice_dict[key]
         return None
 
+    # def dense(self, channels_first=True):
+    #     output_shape = (
+    #         [self.batch_size] + list(self.spatial_shape) + [self.features.shape[1]]
+    #     )
+    #     res = scatter_nd(self.indices.long(), self.features, output_shape)
+    #     if not channels_first:
+    #         return res
+    #     ndim = len(self.spatial_shape)
+    #     trans_params = list(range(0, ndim + 1))
+    #     trans_params.insert(1, ndim + 1)
+    #     return res.permute(*trans_params).contiguous()
+    
     def dense(self, channels_first=True):
         output_shape = (
             [self.batch_size] + list(self.spatial_shape) + [self.features.shape[1]]
         )
-        res = scatter_nd(self.indices.long(), self.features, output_shape)
+        res, res_ind = scatter_nd(self.indices.long(), self.features, output_shape, return_ind=True)
         if not channels_first:
             return res
         ndim = len(self.spatial_shape)
         trans_params = list(range(0, ndim + 1))
         trans_params.insert(1, ndim + 1)
-        return res.permute(*trans_params).contiguous()
+        return res.permute(*trans_params).contiguous(), res_ind.permute(*trans_params).contiguous()
 
     @property
     def sparity(self):

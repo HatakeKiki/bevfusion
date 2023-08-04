@@ -216,12 +216,18 @@ class GlobalRotScaleTrans:
                 data["points"].rotate(-theta)
                 data["points"].translate(translation)
                 data["points"].scale(scale)
+                
+            if "points_single" in data:
+                data["points_single"].rotate(-theta)
+                data["points_single"].translate(translation)
+                data["points_single"].scale(scale)
 
-            gt_boxes = data["gt_bboxes_3d"]
-            rotation = rotation @ gt_boxes.rotate(theta).numpy()
-            gt_boxes.translate(translation)
-            gt_boxes.scale(scale)
-            data["gt_bboxes_3d"] = gt_boxes
+            if 'gt_bboxes_3d' in data:
+                gt_boxes = data["gt_bboxes_3d"]
+                rotation = rotation @ gt_boxes.rotate(theta).numpy()
+                gt_boxes.translate(translation)
+                gt_boxes.scale(scale)
+                data["gt_bboxes_3d"] = gt_boxes
 
             transform[:3, :3] = rotation.T * scale
             transform[:3, 3] = translation * scale
@@ -362,6 +368,8 @@ class RandomFlip3D:
             rotation = np.array([[1, 0, 0], [0, -1, 0], [0, 0, 1]]) @ rotation
             if "points" in data:
                 data["points"].flip("horizontal")
+            if "points_single" in data:
+                data["points_single"].flip("horizontal")
             if "gt_bboxes_3d" in data:
                 data["gt_bboxes_3d"].flip("horizontal")
             if "gt_masks_bev" in data:
@@ -371,6 +379,8 @@ class RandomFlip3D:
             rotation = np.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]]) @ rotation
             if "points" in data:
                 data["points"].flip("vertical")
+            if "points_single" in data:
+                data["points_single"].flip("vertical")
             if "gt_bboxes_3d" in data:
                 data["gt_bboxes_3d"].flip("vertical")
             if "gt_masks_bev" in data:
@@ -663,6 +673,13 @@ class PointsRangeFilter:
         points_mask = points.in_range_3d(self.pcd_range)
         clean_points = points[points_mask]
         data["points"] = clean_points
+        
+        if "points_single" in data:
+            points = data["points_single"]
+            points_mask = points.in_range_3d(self.pcd_range)
+            clean_points = points[points_mask]
+            data["points_single"] = clean_points
+            
         return data
 
 

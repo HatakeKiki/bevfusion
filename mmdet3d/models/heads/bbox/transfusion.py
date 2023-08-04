@@ -145,12 +145,12 @@ class TransFusionHead(nn.Module):
                     cross_posembed=PositionEmbeddingLearned(2, hidden_channel),
                 )
             )
-        self.roi_extract = roi_extract
-        if roi_extract:
-            self._init_roi_extractor()
-            head_num = self.num_decoder_layers + 1
-        else:
-            head_num = self.num_decoder_layers
+        # self.roi_extract = roi_extract
+        # if roi_extract:
+        #     self._init_roi_extractor()
+        #     head_num = self.num_decoder_layers + 1
+        # else:
+        head_num = self.num_decoder_layers
             
         # Prediction Head
         self.prediction_heads = nn.ModuleList()
@@ -253,8 +253,15 @@ class TransFusionHead(nn.Module):
         # image guided query initialization
         #################################
         dense_heatmap = self.heatmap_head(lidar_feat)
+        # assert not torch.any(torch.isnan(inputs))
+        # assert not torch.any(torch.isnan(lidar_feat))
+
+        # nan_mask = torch.isnan(dense_heatmap)
+        # nan_indices = torch.nonzero(nan_mask)
+        # dense_heatmap[nan_mask] = 0
+        # assert not torch.any(torch.isnan(dense_heatmap))
+        
         heatmap = dense_heatmap.detach().sigmoid()
-        np.save('/home/kiki/jq/lss/bevfusion/visual/heatmap_l', heatmap.cpu().numpy())
         padding = self.nms_kernel_size // 2
         local_max = torch.zeros_like(heatmap)
         # equals to nms radius = voxel_size * out_size_factor * kenel_size
@@ -315,10 +322,11 @@ class TransFusionHead(nn.Module):
         #################################
         # transformer decoder layer (LiDAR feature as K,V)
         #################################
+        # assert not torch.any(torch.isnan(lidar_feat))
         ret_dicts = []
         for i in range(self.num_decoder_layers):
             prefix = "last_" if (i == self.num_decoder_layers - 1) else f"{i}head_"
-
+            # assert not torch.any(torch.isnan(query_feat))
             # Transformer Decoder Layer
             # :param query: B C Pq    :param query_pos: B Pq 3/6
             query_feat = self.decoder[i](
@@ -356,6 +364,8 @@ class TransFusionHead(nn.Module):
                 )
             else:
                 new_res[key] = ret_dicts[0][key]
+        # for key in new_res.keys():
+        #     assert not torch.any(torch.isnan(new_res[key]))
         return [new_res]
 
     def forward(self, feats, metas):

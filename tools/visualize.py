@@ -6,7 +6,7 @@ import mmcv
 import numpy as np
 import torch
 from mmcv import Config
-from mmcv.parallel import MMDistributedDataParallel
+from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
 from mmcv.runner import load_checkpoint
 from torchpack import distributed as dist
 from torchpack.utils.config import configs
@@ -38,19 +38,22 @@ def recursive_eval(obj, globals=None):
 
 
 def main() -> None:
-    dist.init()
+    
 
     parser = argparse.ArgumentParser()
     parser.add_argument("config", metavar="FILE")
+    parser.add_argument("checkpoint", type=str, default=None)
     parser.add_argument("--mode", type=str, default="pred", choices=["gt", "pred"])
-    parser.add_argument("--checkpoint", type=str, default=None)
     parser.add_argument("--split", type=str, default="test", choices=["train", "val", "test"])
     parser.add_argument("--bbox-classes", nargs="+", type=int, default=None)
     parser.add_argument("--bbox-score", type=float, default=0.1)
     parser.add_argument("--map-score", type=float, default=0.5)
     parser.add_argument("--out-dir", type=str, default="viz")
+    parser.add_argument("--not_dist", action='store_true', default=False)
     args, opts = parser.parse_known_args()
-
+    
+    if not args.not_dist:
+        dist.init()
     configs.load(args.config, recursive=True)
     configs.update(opts)
 
@@ -74,17 +77,34 @@ def main() -> None:
         model = build_model(cfg.model)
         load_checkpoint(model, args.checkpoint, map_location="cpu")
 
-        model = MMDistributedDataParallel(
-            model.cuda(),
-            device_ids=[torch.cuda.current_device()],
-            broadcast_buffers=False,
-        )
+        find_unused_parameters = cfg.get("find_unused_parameters", False)
+        
+        if args.not_dist:
+            model = MMDataParallel(model, device_ids=[0])
+        else:
+            model = MMDistributedDataParallel(
+                model.cuda(),
+                device_ids=[torch.cuda.current_device()],
+                broadcast_buffers=False,
+                find_unused_parameters=find_unused_parameters,
+            )
         model.eval()
-
+    idx = 0
     for data in tqdm(dataflow):
+        # if (idx % 100 != 0): # or (idx / 100 < 59):
+        #     # print(idx)
+        #     idx += 1
+        #     continue
+        # else:
+        #     idx += 1
+            
         metas = data["metas"].data[0][0]
         name = "{}-{}".format(metas["timestamp"], metas["token"])
+        
+        if '1535639694651471-8b57f73177694aee8d393b945df0cd38' not in name:
+            continue
 
+        
         if args.mode == "pred":
             with torch.inference_mode():
                 outputs = model(**data)
@@ -131,19 +151,17 @@ def main() -> None:
             masks = masks >= args.map_score
         else:
             masks = None
-        # '''
         if "img" in data:
             for k, image_path in enumerate(metas["filename"]):
                 image = mmcv.imread(image_path)
                 visualize_camera(
                     os.path.join(args.out_dir, f"camera-{k}", f"{name}.png"),
                     image,
-                    bboxes=bboxes,
-                    labels=labels,
+                    bboxes=None,
+                    labels=None,
                     transform=metas["lidar2image"][k],
                     classes=cfg.object_classes,
                 )
-        # '''
         if "points" in data:
             lidar = data["points"].data[0][0].numpy()
             visualize_lidar(
@@ -155,6 +173,8 @@ def main() -> None:
                 ylim=[cfg.point_cloud_range[d] for d in [1, 4]],
                 classes=cfg.object_classes,
             )
+        if idx == 2:
+            break
         '''
         if masks is not None:
             visualize_map(

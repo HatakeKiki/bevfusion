@@ -1,0 +1,54 @@
+model:
+  type: BEVAttnV2
+  mult_feat: false
+  encoders:
+    camera:
+      backbone:
+        out_indices: [1, 2, 3]
+      neck:
+        in_channels: [192, 384, 768]
+        num_outs: 2
+      vtransform:
+        type: DepthAttnTransform
+        in_channels: 256
+        out_channels: 256
+        feature_size: ${[image_size[0] // 8, image_size[1] // 8]}
+        xbound: [-51.2, 51.2, 0.4]
+        ybound: [-51.2, 51.2, 0.4]
+        zbound: [-10.0, 10.0, 20.0]
+        dbound: [1.0, 60.0, 0.5]
+        depth_attn_layers: 1
+        depth_attn_cfg:
+          type: DepthAttnLayer
+          embed_dim: 256
+          num_heads: 8
+          ffn_cfgs:
+            type: FFN
+            embed_dims: 256
+            feedforward_channels: 512
+            num_fcs: 2
+            ffn_drop: 0.1
+            act_cfg:
+              type: ReLU
+              inplace: true
+          norm_cfg:
+            type: LN
+        downsample: 2
+        img_downsample_factor: [1]
+        positional_encoding:
+          input_channel: 1
+          num_feats: 256
+          type: LearnedDepthPositionalEncoding
+  decoder:
+    backbone:
+      type: GeneralizedResNet
+      in_channels: 256
+      blocks:
+        - [2, 128, 2]
+    neck:
+      in_channels: [128]
+      scale_factor: 2
+
+data:
+  samples_per_gpu: 4
+  workers_per_gpu: 4

@@ -205,15 +205,15 @@ def create_groundtruth_database(
                     dict(
                         type="LoadPointsFromFile",
                         coord_type="LIDAR",
-                        load_dim=19,
-                        use_dim=list(range(19)),
+                        load_dim=18,
+                        use_dim=list(range(18)),
                         load_augmented=load_augmented,
                     ),
                     dict(
                         type="LoadPointsFromMultiSweeps",
                         sweeps_num=10,
-                        load_dim=19,
-                        use_dim=list(range(19)),
+                        load_dim=18,
+                        use_dim=list(range(18)),
                         pad_empty_sweeps=True,
                         remove_close=True,
                         load_augmented=load_augmented,
@@ -261,7 +261,7 @@ def create_groundtruth_database(
         if database_save_path is None:
             database_save_path = osp.join(data_path, f"{info_prefix}_gt_database_virtual")
         if db_info_save_path is None:
-            db_info_save_path = osp.join(data_path, f"{info_prefix}_dbinfos_virtual.pkl")
+            db_info_save_path = osp.join(data_path, f"{info_prefix}_dbinfos_val_virtual.pkl")
     mmcv.mkdir_or_exist(database_save_path)
     all_db_infos = dict()
     if with_mask:

@@ -66,6 +66,7 @@ class CBGSDataset:
         """
         ori_idx = self.sample_indices[idx]
         return self.dataset[ori_idx]
+        # return self.dataset[0]
 
     def __len__(self):
         """Return the length of data infos.

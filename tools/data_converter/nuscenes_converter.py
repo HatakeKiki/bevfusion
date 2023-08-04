@@ -99,6 +99,7 @@ def create_nuscenes_infos(
     train_nusc_infos, val_nusc_infos = _fill_trainval_infos(
         nusc, train_scenes, val_scenes, test, max_sweeps=max_sweeps
     )
+    trainval_nusc_infos = train_nusc_infos + val_nusc_infos
 
     metadata = dict(version=version)
     if test:
@@ -113,11 +114,14 @@ def create_nuscenes_infos(
             )
         )
         data = dict(infos=train_nusc_infos, metadata=metadata)
-        info_path = osp.join(root_path, "{}_infos_train.pkl".format(info_prefix))
-        mmcv.dump(data, info_path)
+        # info_path = osp.join(root_path, "{}_infos_train_visibility.pkl".format(info_prefix))
+        # mmcv.dump(data, info_path)
         data["infos"] = val_nusc_infos
-        info_val_path = osp.join(root_path, "{}_infos_val.pkl".format(info_prefix))
+        info_val_path = osp.join(root_path, "{}_infos_val_visibility.pkl".format(info_prefix))
         mmcv.dump(data, info_val_path)
+        # data["infos"] = trainval_nusc_infos
+        # info_trainval_path = osp.join(root_path, "{}_infos_trainval_visibility.pkl".format(info_prefix))
+        # mmcv.dump(data, info_trainval_path)
 
 
 def get_available_scenes(nusc):
@@ -312,6 +316,10 @@ def _fill_trainval_infos(nusc, train_scenes, val_scenes, test=False, max_sweeps=
                 ],
                 dtype=bool,
             ).reshape(-1)
+            visibility_token = np.array(
+                [anno["visibility_token"] for anno in annotations],
+                dtype=int,
+            ).reshape(-1)
             # convert velo from global to lidar
             for i in range(len(boxes)):
                 velo = np.array([*velocity[i], 0.0])
@@ -334,9 +342,11 @@ def _fill_trainval_infos(nusc, train_scenes, val_scenes, test=False, max_sweeps=
             info["num_lidar_pts"] = np.array([a["num_lidar_pts"] for a in annotations])
             info["num_radar_pts"] = np.array([a["num_radar_pts"] for a in annotations])
             info["valid_flag"] = valid_flag
+            info["visibility_token"] = visibility_token
 
         if sample["scene_token"] in train_scenes:
             train_nusc_infos.append(info)
+            continue
         else:
             val_nusc_infos.append(info)
 

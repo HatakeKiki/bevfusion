@@ -18,27 +18,32 @@ from mmdet3d.utils import get_root_logger, convert_sync_batchnorm, recursive_eva
 from pathlib import Path
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
-# warnings.filterwarnings("ShapelyDeprecationWarning", category=UserWarning)
-
-CUDA_VISIBLE_DEVICES="0,1,2,3"
+# warnings.filterwarnings("ShapelyDeprecationWarning", category=UserWarning)      
 
 def main():
-    dist.init()
 
     parser = argparse.ArgumentParser()
     parser.add_argument("config", metavar="FILE", help="config file")
     parser.add_argument("--run-dir", metavar="DIR", help="run directory")
     parser.add_argument('--auto-resume', action='store_true', default=False, 
                         help='resume from the latest checkpoint automatically')
+    parser.add_argument("--no_validate", action='store_true', default=False)
+    parser.add_argument("--not_dist", action='store_true', default=False)
     args, opts = parser.parse_known_args()
+    
+    if not args.not_dist:
+        dist.init()
 
-    configs.load(args.config, recursive=True)
-    configs.update(opts)
-
-    cfg = Config(recursive_eval(configs), filename=args.config)
+    if args.config.split('.')[-1] == 'py':
+        cfg = Config.fromfile(args.config)
+    elif args.config.split('.')[-1] == 'yaml':
+        configs.load(args.config, recursive=True)
+        configs.update(opts)
+        cfg = Config(recursive_eval(configs), filename=args.config)
 
     torch.backends.cudnn.benchmark = cfg.cudnn_benchmark
     torch.cuda.set_device(dist.local_rank())
+    # torch.autograd.set_detect_anomaly(True)
 
     if args.run_dir is None:
         args.run_dir = auto_set_run_dir()
@@ -53,7 +58,7 @@ def main():
         ckpt_dir.mkdir(exist_ok=False, parents=True)
 
     # dump config
-    cfg.dump(os.path.join(cfg.run_dir, "configs.yaml"))
+    cfg.dump(os.path.join(cfg.run_dir, "configs." + args.config.split('.')[-1]))
 
     # init the logger before other steps
     timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
@@ -81,46 +86,24 @@ def main():
     model = build_model(cfg.model)
     model.init_weights()
     
-    if ('freeze_lidar_components' in cfg) or ('freeze_camera_components' in cfg) and cfg['freeze_lidar_components'] is True:
-        logger.info(f"param need to update:")
-        param_grad = []
-        param_nograd = []
-        if 'freeze_lidar_components' in cfg and cfg['freeze_lidar_components'] is True:
-            for name, param in model.named_parameters():
-                if 'encoders.lidar' in name:
-                    param.requires_grad = False
-                    
-        if 'freeze_camera_components' in cfg and cfg['freeze_camera_components'] is True:        
-            for name, param in model.named_parameters():
-                if 'encoders.camera.backbone' in name:
-                    param.requires_grad = False
+    freeze_layers = ['encoders.lidar']
+    for name, param in model.named_parameters():
+        for freeze_layer in freeze_layers:
+            if freeze_layer in name:
+                param.requires_grad = False
 
-        from torch import nn
-        def fix_bn(m):
-            if isinstance(m, nn.BatchNorm1d) or isinstance(m, nn.BatchNorm2d):
-                m.track_running_stats = False
+    logger.info(f"Params need to be updated:")
+    for name, param in model.named_parameters():
+        if param.requires_grad is True:
+            logger.info(name)
 
-        model.encoders.lidar.apply(fix_bn)
-
-        for name, param in model.named_parameters():
-            if param.requires_grad is True:
-                logger.info(name)
-                param_grad.append(name)
-            else:
-                param_nograd.append(name)
-    
-    if cfg.get("sync_bn", None):
-        if not isinstance(cfg["sync_bn"], dict):
-            cfg["sync_bn"] = dict(exclude=[])
-        model = convert_sync_batchnorm(model, exclude=cfg["sync_bn"]["exclude"])
-
-    logger.info(f"Model:\n{model}")
+    # logger.info(f"Model:\n{model}")
     train_model(
         model,
         datasets,
         cfg,
-        distributed=True,
-        validate=True,
+        distributed=(not args.not_dist),
+        validate=(not args.no_validate),
         timestamp=timestamp,
     )
 

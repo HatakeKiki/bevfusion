@@ -179,6 +179,7 @@ train_pipeline:
     keys:
       - img
       - points
+      # - points_single
       # - mask
       - gt_bboxes_3d
       - gt_labels_3d
@@ -285,6 +286,7 @@ data:
       test_mode: false
       use_valid_flag: true
       box_type_3d: LiDAR
+      # load_interval: 4
   val:
     type: ${dataset_type}
     dataset_root: ${dataset_root}

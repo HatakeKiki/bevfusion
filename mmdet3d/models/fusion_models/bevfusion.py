@@ -4,6 +4,7 @@ import torch
 from mmcv.runner import auto_fp16, force_fp32
 from torch import nn
 from torch.nn import functional as F
+import time
 # for TTA
 from mmdet3d.core.bbox import box_np_ops as box_np_ops
 
@@ -35,22 +36,17 @@ class BEVFusion(Base3DFusionModel):
         **kwargs,
     ) -> None:
         super().__init__()
-        if not (self.__class__ is BEVFusion):
-            return
         
         ## falgs for MVP and maksed CNN featuers
         self.with_mask = False
-        self.virtual = False
         self.middle_fuse = False
-        self.filter = False
-        if 'with_mask' in kwargs.keys():
-            self.with_mask = kwargs['with_mask']
-            if self.with_mask:
-                self.class_encoding = nn.Conv1d(10, 256, 1)
-        if 'virtual' in kwargs.keys():
-            self.virtual = kwargs['virtual']
-        if 'filter' in kwargs.keys():
-            self.filter = kwargs['filter']
+        # if 'with_mask' in kwargs.keys():
+        #     self.with_mask = kwargs['with_mask']
+        #     if self.with_mask:
+        #         self.class_encoding = nn.Conv1d(10, 256, 1)
+
+        self.virtual =  kwargs.get('virtual', False)
+        self.filter = kwargs.get('filter', False)
 
         self.encoders = nn.ModuleDict()
         if encoders.get("camera") is not None:
@@ -393,6 +389,7 @@ class BEVFusion(Base3DFusionModel):
             for type, head in self.heads.items():
                 if type == "object":
                     pred_dict = head(x, metas)
+                    losses = head.loss(gt_bboxes_3d, gt_labels_3d, pred_dict)
                     bboxes = head.get_bboxes(pred_dict, metas)
                     for k, (boxes, scores, labels) in enumerate(bboxes):
                             # if self.test_cfg['filter_empty']:
@@ -437,4 +434,7 @@ class BEVFusion(Base3DFusionModel):
                         )
                 else:
                     raise ValueError(f"unsupported head: {type}")
+                
+            time_2 = time.time()
+            # print('=====================', time_2 - time_1)
             return outputs

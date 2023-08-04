@@ -1,0 +1,48 @@
+freeze_lidar_components: true
+freeze_camera_components: true
+gt_paste_stop_epoch: -1
+
+data:
+  samples_per_gpu: 2
+  workers_per_gpu: 4
+
+max_epochs: 6
+
+with_mask: true
+# transform_input: 266
+
+augment2d:
+  resize: [[0.48, 0.48], [0.48, 0.48]]
+  rotate: [0, 0]
+  gridmask:
+    prob: 0.0
+    fixed_prob: true
+
+augment3d:
+  scale: [1.0, 1.0]
+  rotate: [0, 0]
+  translate: 0.0
+
+
+# MVP related
+dbinfos_file: nuscenes_dbinfos_virtual.pkl
+train_pkl: nuscenes_infos_train.pkl
+val_pkl: nuscenes_infos_val.pkl
+
+load_augmented: mvp
+load_dim: 18
+use_dim: 18
+
+model:
+  type: BEVFusion
+  virtual: True
+  with_mask: ${with_mask}
+  encoders:
+    lidar:
+      backbone:
+        type: SparseEncoder
+        in_channels: ${use_dim}
+  fuser:
+    type: ConvFuser
+    in_channels: [80, 256]
+    out_channels: 256

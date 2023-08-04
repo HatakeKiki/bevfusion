@@ -1,7 +1,13 @@
 model:
-  type: BEVAttn
+  type: BEVAttnV2
+  mult_feat: false
   encoders:
     camera:
+      backbone:
+        out_indices: [1, 2, 3]
+      neck:
+        in_channels: [192, 384, 768]
+        # num_outs: 1
       vtransform:
         type: DepthAttnTransform
         in_channels: 256
@@ -16,8 +22,6 @@ model:
           type: DepthAttnLayer
           embed_dim: 256
           num_heads: 8
-          depth_attn: true
-          sem_attn: false
           ffn_cfgs:
             type: FFN
             embed_dims: 256
@@ -29,18 +33,16 @@ model:
               inplace: true
           norm_cfg:
             type: LN
+        downsample: 2
+        img_downsample_factor: [1]
         positional_encoding:
-          type: LearnedDepthPositionalEncoding
           input_channel: 1
           num_feats: 256
-        # positional_encoding_key:
-        #     type: SinePositionalEncoding
-        #     num_feats: 128
-        #     normalize: True
-        downsample: 2
-        with_bev_embedding: False
+          type: LearnedDepthPositionalEncoding
   decoder:
     backbone:
       in_channels: 256
 
-
+data:
+  samples_per_gpu: 4
+  workers_per_gpu: 4

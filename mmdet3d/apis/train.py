@@ -125,8 +125,6 @@ def train_model(
     resume_from = None
     if cfg.get('auto_resume'):
         resume_from = find_latest_checkpoint(cfg.run_dir)
-        # print('========================================')
-        # print('Resuming from: %s' % resume_from)
         cfg.resume_from = resume_from
 
     if cfg.resume_from:

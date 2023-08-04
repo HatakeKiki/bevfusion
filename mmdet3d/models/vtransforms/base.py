@@ -85,13 +85,16 @@ class BaseTransform(nn.Module):
         intrins,
         post_rots,
         post_trans,
+        frustum=None,
         **kwargs,
     ):
         B, N, _ = camera2lidar_trans.shape
 
         # undo post-transformation
         # B x N x D x H x W x 3
-        points = self.frustum - post_trans.view(B, N, 1, 1, 1, 3)
+        if frustum is None:
+            frustum = self.frustum
+        points = frustum - post_trans.view(B, N, 1, 1, 1, 3)
         points = (
             torch.inverse(post_rots)
             .view(B, N, 1, 1, 1, 3, 3)

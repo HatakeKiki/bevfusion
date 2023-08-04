@@ -1,0 +1,80 @@
+model:
+  type: BEVAttnV2
+  encoders:
+    camera:
+      backbone:
+        out_indices: [1, 2, 3] #
+        frozen_stages: 3 #
+      vtransform:
+        type: DepthAttnTransform
+        in_channels: 256
+        out_channels: 256
+        feature_size: ${[image_size[0] // 8, image_size[1] // 8]} # 
+        xbound: [-54, 54, 0.6]
+        ybound: [-54, 54, 0.6]
+        depth_attn_layers: 1
+        depth_attn_cfg:
+          type: DepthAttnLayer
+          with_res: False
+          embed_dim: 256
+          num_heads: 8
+          ffn_cfgs:
+            type: FFN
+            embed_dims: 256
+            feedforward_channels: 512
+            num_fcs: 2
+            ffn_drop: 0.1
+            act_cfg:
+              type: ReLU
+              inplace: true
+          norm_cfg:
+            type: LN
+        with_bev_embedding: True
+        positional_encoding:
+          type: LearnedDepthPositionalEncoding
+          input_channel: 1
+          num_feats: 256
+        downsample: 1
+        img_downsample_factor: [1] # 
+  heads:
+    object:
+      in_channels: 256
+  decoder:
+    backbone:
+      in_channels: 256
+  # fuser:
+  #   type: ConvFuser
+  #   in_channels: [512, 256]
+  #   out_channels: 512
+
+freeze_lidar_components: True
+freeze_decoder: True
+
+lr_config:
+  policy: CosineAnnealing
+  warmup: linear
+  warmup_iters: 2000
+  warmup_ratio: 0.3333333
+  min_lr_ratio: 1.0e-3
+
+optimizer:
+  type: AdamW
+  lr: 5.0e-5
+  # paramwise_cfg:
+    # custom_keys: 
+    #   camera.backbone:
+    #     lr_mult: 0.1
+    #     decay_mult: 1.0
+      # vtransform:
+      #   lr_mult: 0.1
+      #   decay_mult: 1.0
+
+max_epochs: 6
+gt_paste_stop_epoch: -1
+
+data:
+  samples_per_gpu: 2
+  workers_per_gpu: 4
+
+evaluation:
+  interval: 3
