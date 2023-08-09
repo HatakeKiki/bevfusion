@@ -114,13 +114,13 @@ def create_nuscenes_infos(
             )
         )
         data = dict(infos=train_nusc_infos, metadata=metadata)
-        # info_path = osp.join(root_path, "{}_infos_train_visibility.pkl".format(info_prefix))
+        # info_path = osp.join(root_path, "{}_infos_train.pkl".format(info_prefix))
         # mmcv.dump(data, info_path)
         data["infos"] = val_nusc_infos
-        info_val_path = osp.join(root_path, "{}_infos_val_visibility.pkl".format(info_prefix))
+        info_val_path = osp.join(root_path, "{}_infos_val.pkl".format(info_prefix))
         mmcv.dump(data, info_val_path)
         # data["infos"] = trainval_nusc_infos
-        # info_trainval_path = osp.join(root_path, "{}_infos_trainval_visibility.pkl".format(info_prefix))
+        # info_trainval_path = osp.join(root_path, "{}_infos_trainval.pkl".format(info_prefix))
         # mmcv.dump(data, info_trainval_path)
 
 

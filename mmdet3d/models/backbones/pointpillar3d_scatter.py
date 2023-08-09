@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from mmdet.models import BACKBONES
+from mmcv.runner import auto_fp16
 
 __all__ = ["PointPillarScatter3d"]
 
@@ -12,9 +13,11 @@ class PointPillarScatter3d(nn.Module):
         self.nx, self.ny, self.nz = input_shape
         self.num_bev_features = num_bev_features
         self.num_bev_features_before_compression = num_bev_features // self.nz
+        self.fp16_enabled = False
 
-    def forward(self, batch_dict, **kwargs):
-        pillar_features, coords = batch_dict['pillar_features'], batch_dict['voxel_coords']
+    @auto_fp16(apply_to=("pillar_features",))
+    def forward(self, pillar_features, coords, **kwargs):
+        # pillar_features, coords = batch_dict['pillar_features'], batch_dict['voxel_coords']
         
         batch_spatial_masks= []
         batch_spatial_features = []
@@ -45,8 +48,8 @@ class PointPillarScatter3d(nn.Module):
 
         batch_spatial_features = torch.stack(batch_spatial_features, 0)
         batch_spatial_features = batch_spatial_features.view(batch_size, self.num_bev_features_before_compression * self.nz, self.ny, self.nx)
-        batch_dict['spatial_features'] = batch_spatial_features
+        # batch_dict['spatial_features'] = batch_spatial_features
         
         batch_spatial_masks= torch.stack(batch_spatial_masks, 0)
-        batch_dict['spatial_masks'] = batch_spatial_masks
-        return batch_dict
+        # batch_dict['spatial_masks'] = batch_spatial_masks
+        return batch_spatial_features, batch_spatial_masks

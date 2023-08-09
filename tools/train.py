@@ -29,6 +29,7 @@ def main():
                         help='resume from the latest checkpoint automatically')
     parser.add_argument("--no_validate", action='store_true', default=False)
     parser.add_argument("--not_dist", action='store_true', default=False)
+    parser.add_argument("--sync_bn", action='store_true', default=False)
     args, opts = parser.parse_known_args()
     
     if not args.not_dist:
@@ -84,17 +85,27 @@ def main():
     datasets = [build_dataset(cfg.data.train)]
 
     model = build_model(cfg.model)
+    
+    if args.sync_bn:
+        logger.info("BatchNorm Synced")
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+    
     model.init_weights()
     
-    freeze_layers = ['encoders.lidar']
-    for name, param in model.named_parameters():
-        for freeze_layer in freeze_layers:
-            if freeze_layer in name:
-                param.requires_grad = False
+    # freeze_layers = ['encoders.lidar']
+    # for name, param in model.named_parameters():
+    #     for freeze_layer in freeze_layers:
+    #         if freeze_layer in name:
+    #             param.requires_grad = False
 
     logger.info(f"Params need to be updated:")
     for name, param in model.named_parameters():
         if param.requires_grad is True:
+            logger.info(name)
+            
+    logger.info(f"Params not need to be updated:")
+    for name, param in model.named_parameters():
+        if param.requires_grad is False:
             logger.info(name)
 
     # logger.info(f"Model:\n{model}")

@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from mmdet.models import BACKBONES
+from mmcv.runner import auto_fp16
+
 __all__ = ["BaseBEVResBackbone"]
 
 class BasicBlock(nn.Module):
@@ -121,15 +123,17 @@ class BaseBEVResBackbone(nn.Module):
             ))
 
         self.num_bev_features = c_in
+        self.fp16_enabled = False
 
-    def forward(self, data_dict):
+    @auto_fp16(apply_to=("spatial_features"))
+    def forward(self, spatial_features):
         """
         Args:
             data_dict:
                 spatial_features
         Returns:
         """
-        spatial_features = data_dict['spatial_features']
+        # spatial_features = data_dict['spatial_features']
         ups = []
         ret_dict = {}
         x = spatial_features
@@ -151,6 +155,6 @@ class BaseBEVResBackbone(nn.Module):
         if len(self.deblocks) > len(self.blocks):
             x = self.deblocks[-1](x)
 
-        data_dict['spatial_features_2d'] = x
+        # data_dict['spatial_features_2d'] = x
 
-        return data_dict
+        return x

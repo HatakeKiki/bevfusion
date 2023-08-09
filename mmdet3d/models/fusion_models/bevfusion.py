@@ -435,6 +435,4 @@ class BEVFusion(Base3DFusionModel):
                 else:
                     raise ValueError(f"unsupported head: {type}")
                 
-            time_2 = time.time()
-            # print('=====================', time_2 - time_1)
             return outputs

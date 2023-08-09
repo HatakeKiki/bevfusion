@@ -53,6 +53,7 @@ class DepthAttnTransform(BaseTransform):
         assert img_downsample_factor[0] == 1
         self.with_bev_embedding = with_bev_embedding
         self.mult = len(img_downsample_factor) > 1
+        self.loss_cl_weight = kwargs.get('loss_weight', 1)
         
         # if (self.mult):
         #     self.level_embeds = nn.Parameter(torch.Tensor(len(img_downsample_factor), self.in_channels))
@@ -224,6 +225,11 @@ class DepthAttnTransform(BaseTransform):
         interval_lengths[:-1] = interval_starts[1:] - interval_starts[:-1]
         interval_lengths[-1] = ranks_bev.shape[0] - interval_starts[-1]
         
+        # bev_idx = (~kept).to(torch.int32)
+        # offset = torch.cat([torch.tensor([1]).to(interval_lengths.device), interval_lengths[:-1]], dim=0).to(torch.int32)
+        # bev_idx[bev_idx == 0] = -offset+1
+        # bev_idx = bev_idx.cumsum(0)
+        
         return ranks_bev.int().contiguous(), ranks_feat.int().contiguous(), \
                interval_starts.int().contiguous(), interval_lengths.int().contiguous()
              
@@ -238,6 +244,8 @@ class DepthAttnTransform(BaseTransform):
         lidar_aug_matrix,
         scores=None,
         pts_ind=None,
+        sparse_bev_ind=None,
+        sparse_per_ind=None,
         **kwargs,
     ):
         assert len(feat_imgs) == len(self.frustums)
@@ -299,7 +307,7 @@ class DepthAttnTransform(BaseTransform):
         # in feat order
         ranks_bev, ranks_feat, interval_starts, interval_lengths = \
                                 self.get_ranks_ordered(ranks_bev, ranks_feat)
-        
+                                        
 
         key = torch.cat([feat_img.permute(0, 2, 3, 1).contiguous().view(-1, c_img) for feat_img in feat_imgs], dim=0).contiguous()
 
@@ -349,67 +357,88 @@ class DepthAttnTransform(BaseTransform):
 
         weights = attn_weights.sum(dim=1) / attn_weights.shape[1]
         
-        return x, weights
+        if sparse_bev_ind is not None:
+            kept = torch.ones(
+                ranks_feat.shape[0], device=ranks_feat.device, dtype=torch.bool)
+            kept[1:] = ranks_feat[1:] != ranks_feat[:-1]
+            
+            bev_idx = (~kept).to(torch.int32)
+            offset = torch.cat([torch.tensor([1]).to(interval_lengths.device), interval_lengths[:-1]], dim=0).to(torch.int32)
+            bev_idx[bev_idx == 0] = -offset+1
+            bev_idx = bev_idx.cumsum(0)
+            
+            sparse_bev_ind = sparse_bev_ind.permute(0, 2, 1).contiguous()
+            sparse_bev_ind = sparse_bev_ind.view(-1).to(torch.bool)
+            gt_ind = sparse_bev_ind[ranks_bev.to(torch.int64)] & sparse_per_ind[ranks_feat.to(torch.int64)].to(torch.bool)
+            
+            per_idx = ranks_feat[gt_ind]
+            bev_idx = bev_idx[gt_ind]
+            
+            per_idx, indices = torch.unique(per_idx, return_inverse=True)
+            bev_idx = bev_idx[torch.unique(indices)]
+            
+
+            loss_cl = self.get_cl_loss(per_idx, bev_idx, weights)
+        else:
+            loss_cl = None
+        
+        return x, loss_cl
         # return x
     
 
-    def get_downsampled_gt_depth(self, gt_depths, downsample, depth_bins):
-        """ Get ground-truth depth with projected Lidar points.
+    # def get_downsampled_gt_depth(self, gt_depths, downsample, depth_bins):
+    #     """ Get ground-truth depth with projected Lidar points.
 
-        Args:
-            gt_depths (torch.tensor): _description_
-            downsample (int): Downsample factor defined by img_size/feat_size
-            depth_bins (int): Discreted depth number
+    #     Args:
+    #         gt_depths (torch.tensor): _description_
+    #         downsample (int): Downsample factor defined by img_size/feat_size
+    #         depth_bins (int): Discreted depth number
 
-        Returns:
-            _type_: _description_
-        """
-        # downsample = int(self.image_size[0] / self.feature_size[0])
+    #     Returns:
+    #         _type_: _description_
+    #     """
+    #     # downsample = int(self.image_size[0] / self.feature_size[0])
         
-        B, N, H, W = gt_depths.shape
-        gt_depths = gt_depths.view(B * N, H // downsample,
-                                   downsample, W // downsample,
-                                   downsample, 1)
-        gt_depths = gt_depths.permute(0, 1, 3, 5, 2, 4).contiguous()
-        gt_depths = gt_depths.view(-1, downsample * downsample)
-        gt_depths_tmp = torch.where(gt_depths == 0.0,
-                                    1e5 * torch.ones_like(gt_depths),
-                                    gt_depths)
-        gt_depths = torch.min(gt_depths_tmp, dim=-1).values
-        gt_depths = gt_depths.view(B * N, H // downsample,
-                                   W // downsample)
+    #     B, N, H, W = gt_depths.shape
+    #     gt_depths = gt_depths.view(B * N, H // downsample,
+    #                                downsample, W // downsample,
+    #                                downsample, 1)
+    #     gt_depths = gt_depths.permute(0, 1, 3, 5, 2, 4).contiguous()
+    #     gt_depths = gt_depths.view(-1, downsample * downsample)
+    #     gt_depths_tmp = torch.where(gt_depths == 0.0,
+    #                                 1e5 * torch.ones_like(gt_depths),
+    #                                 gt_depths)
+    #     gt_depths = torch.min(gt_depths_tmp, dim=-1).values
+    #     gt_depths = gt_depths.view(B * N, H // downsample,
+    #                                W // downsample)
 
-        gt_depths = (gt_depths - (self.dbound[0]-self.dbound[2])) / \
-                        self.dbound[2]
+    #     gt_depths = (gt_depths - (self.dbound[0]-self.dbound[2])) / \
+    #                     self.dbound[2]
 
-        gt_depths = torch.where((gt_depths < self.D + 1) & (gt_depths >= 0.0),
-                                gt_depths, torch.zeros_like(gt_depths))
-        gt_depths = F.one_hot(
-            gt_depths.long(), num_classes=depth_bins + 1).view(-1, depth_bins + 1)[:,
-                                                                           1:]
-        return gt_depths.float()
+    #     gt_depths = torch.where((gt_depths < self.D + 1) & (gt_depths >= 0.0),
+    #                             gt_depths, torch.zeros_like(gt_depths))
+    #     gt_depths = F.one_hot(
+    #         gt_depths.long(), num_classes=depth_bins + 1).view(-1, depth_bins + 1)[:,
+    #                                                                        1:]
+    #     return gt_depths.float()
         
-    def get_cl_loss(self, depth_labels, attn_weight, downsample):
-        depth_bins = attn_weight.shape[-1]
-        depth_labels = self.get_downsampled_gt_depth(depth_labels, downsample, depth_bins)
+    def get_cl_loss(self, per_idx, bev_idx, weights):
         
-        fg_mask = torch.max(depth_labels, dim=1).values > 0.0
-        depth_labels = depth_labels[fg_mask]
-        attn_weight = attn_weight[fg_mask]
+        if per_idx.shape[0] == 0:
+            return None
         
+        valid_weights = weights[per_idx.to(torch.int64), :]
+        valid_weights = torch.clamp(valid_weights, min=0.0000001)
+        num_classes = weights.shape[1]
+        assert bev_idx.max() < num_classes
+
+        # 转换为 one-hot 向量
+        # target = F.one_hot(bev_idx, num_classes=num_classes)
+
         with autocast(enabled=False):
-            loss_cl = F.binary_cross_entropy(
-                attn_weight,
-                depth_labels,
-                reduction='none',
+            loss_cl = self.criterion(
+                valid_weights,
+                bev_idx,
             )
-            loss_cl = loss_cl.sum() / max(1.0, fg_mask.sum())
-    
-        # with autocast(enabled=False):
-        #     out = torch.div(attn_weight, self.loss_cl['T'])
-        #     loss_cl = self.criterion(
-        #         out,
-        #         depth_labels
-        #     )
             
-        return self.loss_cl['loss_weight'] * loss_cl
+        return self.loss_cl_weight * loss_cl

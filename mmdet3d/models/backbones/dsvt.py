@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.utils.checkpoint import checkpoint
+from mmcv.runner import auto_fp16
 
 from .dsvt_input_layer import DSVTInputLayer
 # from ..model_utils.tensorrt_utils.trtwrapper import TRTWrapper
@@ -85,10 +86,12 @@ class DSVT(nn.Module):
         self.stage_num = stage_num
         self.set_info = set_info
         self.num_point_features = conv_out_channel
+        self.fp16_enabled = False
 
         self._reset_parameters()
 
-    def forward(self, batch_dict):
+    @auto_fp16(apply_to=("voxel_feats"))
+    def forward(self, voxel_feats, voxel_coors):
         '''
         Args:
             bacth_dict (dict): 
@@ -106,7 +109,7 @@ class DSVT(nn.Module):
                 - voxel_coords (Tensor[int]):
                 - ...
         '''
-        voxel_info = self.input_layer(batch_dict)
+        voxel_info = self.input_layer(voxel_feats, voxel_coors)
 
         voxel_feat = voxel_info['voxel_feats_stage0']
         set_voxel_inds_list = [[voxel_info[f'set_voxel_inds_stage{s}_shift{i}'] for i in range(self.num_shifts[s])] for s in range(self.stage_num)]
@@ -151,9 +154,10 @@ class DSVT(nn.Module):
                 else:
                     raise NotImplementedError
 
-        batch_dict['pillar_features'] = batch_dict['voxel_features'] = output
-        batch_dict['voxel_coords'] = voxel_info[f'voxel_coors_stage{self.stage_num - 1}']
-        return batch_dict
+        # batch_dict['pillar_features'] = batch_dict['voxel_features'] = output
+        # batch_dict['voxel_coords'] = voxel_info[f'voxel_coors_stage{self.stage_num - 1}']
+        
+        return output, voxel_info[f'voxel_coors_stage{self.stage_num - 1}']
 
     def _reset_parameters(self):
         for name, p in self.named_parameters():

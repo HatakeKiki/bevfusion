@@ -16,8 +16,8 @@ class ConvFuser(nn.Sequential):
         super().__init__(
             nn.Conv2d(sum(in_channels), out_channels, 3, padding=1, bias=False),
             nn.BatchNorm2d(out_channels, eps=1e-3, momentum=0.01),
-            # nn.ReLU(True),
-            nn.GELU(),
+            nn.ReLU(True),
+            # nn.GELU(),
         )
 
     def forward(self, inputs: List[torch.Tensor]) -> torch.Tensor:

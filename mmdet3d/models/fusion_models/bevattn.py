@@ -34,6 +34,7 @@ class BEVAttn(Base3DFusionModel):
 
         self.mult_feat = kwargs.get('mult_feat', False)
         self.return_cl_loss = kwargs.get('return_cl_loss', False)
+        self.loss_scale = kwargs.get("loss_scale", 1.0)
 
         self.encoders = nn.ModuleDict()
         if encoders.get("camera") is not None:
@@ -61,6 +62,7 @@ class BEVAttn(Base3DFusionModel):
         )
 
         self.dense_head = build_head(dense_head)
+                    
         self.init_weights()
 
     def init_weights(self) -> None:
@@ -102,7 +104,7 @@ class BEVAttn(Base3DFusionModel):
         else:
             feat_imgs = x
             
-        feat_bev, weights = self.encoders["camera"]["vtransform"](
+        feat_bev, loss_cl = self.encoders["camera"]["vtransform"](
             feat_imgs=feat_imgs,
             feat_pts=feat_pts,
             cam_intrinsic=camera_intrinsics,
@@ -114,15 +116,12 @@ class BEVAttn(Base3DFusionModel):
             **kwargs,
         )
         
-        return feat_bev
+        return feat_bev, loss_cl
     
     @force_fp32()
     def voxelize(self, points):
-        batch_dict = {}
-        batch_dict.update(self.encoders["lidar"]["voxelize"](points))
-        # self.encoders["lidar"]["backbone"](batch_dict)
-        # self.encoders["lidar"]["map2bev"](batch_dict)
-        return batch_dict
+        voxel_feats, voxel_coors = self.encoders["lidar"]["voxelize"](points)
+        return voxel_feats, voxel_coors
 
     @auto_fp16(apply_to=("img"))
     def forward_single(
@@ -151,10 +150,10 @@ class BEVAttn(Base3DFusionModel):
         batch_size = len(gt_bboxes_3d)
         max_objs = 0
         for labels, boxes in zip(gt_labels_3d, gt_bboxes_3d):
-            # boxes_ = torch.cat([boxes.tensor.to(labels.device), labels.unsqueeze(1)+1], dim=1)
-            boxes_ = torch.cat([boxes.tensor[:, [0, 1, 2, 4, 3, 5, 6, 7, 8]].to(labels.device), labels.unsqueeze(1)+1], dim=1)
-            boxes_[:, 6] = -boxes_[:, 6] - torch.pi/2
-            boxes_[:, 6] = (boxes_[:, 6] + torch.pi) % (2 * torch.pi) - torch.pi
+            # boxes_ = torch.cat([boxes.tensor[:, [0, 1, 2, 4, 3, 5, 6, 7, 8]].to(labels.device), labels.unsqueeze(1)+1], dim=1)
+            # boxes_[:, 6] = -boxes_[:, 6] - torch.pi/2
+            # boxes_[:, 6] = (boxes_[:, 6] + torch.pi) % (2 * torch.pi) - torch.pi
+            boxes_= torch.cat([boxes.tensor.to(labels.device), labels.unsqueeze(1)+1], dim=1)
             gt_boxes.append(boxes_)
             max_objs = max(max_objs, boxes_.shape[0])
         
@@ -162,26 +161,28 @@ class BEVAttn(Base3DFusionModel):
         for idx in range(batch_size):
             gt_boxes_[idx, 0:gt_boxes[idx].shape[0], :] = gt_boxes[idx]
 
-        batch_dict = dict(
-            batch_size=batch_size,
-            gt_boxes=gt_boxes_,
-            points=torch.cat([torch.cat([torch.ones(point.shape[0], 1).to(point.device) * idx, point], dim=-1) \
+        # batch_dict = dict(
+        #     batch_size=batch_size,
+        #     gt_boxes=gt_boxes_,
+            
+        # )
+        
+        points_=torch.cat([torch.cat([torch.ones(point.shape[0], 1).to(point.device) * idx, point], dim=-1) \
                 for idx, point in enumerate(points)], dim=0)
-        )
         
         
-        batch_dict.update(self.voxelize(batch_dict['points']))
-        self.encoders["lidar"]["backbone"](batch_dict)
-        self.encoders["lidar"]["map2bev"](batch_dict)
+        voxel_feats, voxel_coors = self.voxelize(points_)
+        voxel_feats, voxel_coors = self.encoders["lidar"]["backbone"](voxel_feats, voxel_coors)
+        spatial_features, spatial_masks = self.encoders["lidar"]["map2bev"](voxel_feats, voxel_coors)
 
         
         if "camera" in self.encoders.keys():
-            pts_feat = batch_dict['spatial_features']
-            pts_ind = batch_dict['spatial_masks']
+            # pts_feat = batch_dict['spatial_features']
+            # pts_ind = batch_dict['spatial_masks']
 
-            img_feat_bev = self.extract_camera_features(
+            img_feat_bev, loss_cl = self.extract_camera_features(
                 img,
-                pts_feat.permute(0,1,3,2).contiguous(),
+                spatial_features.permute(0,1,3,2).contiguous(),
                 camera2ego,
                 lidar2ego,
                 lidar2camera,
@@ -196,39 +197,54 @@ class BEVAttn(Base3DFusionModel):
                 gt_bboxes_3d=gt_bboxes_3d,
                 gt_labels_3d=gt_labels_3d,
                 # pts_ind=None,
-                pts_ind=pts_ind.view(batch_size, pts_feat.shape[-2], pts_feat.shape[-1]).permute(0,2,1),
+                pts_ind=spatial_masks(batch_size, spatial_features.shape[-2], spatial_features.shape[-1]).permute(0,2,1),
             )
             img_feat_bev = img_feat_bev.permute(0,1,3,2).contiguous()
-            batch_dict.update(spatial_features_img=img_feat_bev)
+            # batch_dict.update(spatial_features_img=img_feat_bev)
 
             
-        # import numpy as np
-        # np.save('/home/kiki/jq/lss/bevfusion/visual/pts_feat', \
-        #     batch_dict['spatial_features'].detach().cpu().numpy())
-            
         if self.fuser is not None:
-            if isinstance(self.fuser, SparsePool):
-                batch_dict = self.fuser(batch_dict)
-            else:
-                feat_fuse = self.fuser([img_feat_bev, batch_dict['spatial_features']])
-                batch_dict['spatial_features'] = feat_fuse
+            # if isinstance(self.fuser, SparsePool):
+            #     batch_dict = self.fuser(batch_dict)
+            # else:
+            feat_fuse = self.fuser([img_feat_bev, spatial_features])
+            spatial_feature_2d = self.decoder["backbone"](feat_fuse)
+        else:
+            spatial_feature_2d = self.decoder["backbone"](spatial_features)
         
-            
-            # np.save('/home/kiki/jq/lss/bevfusion/visual/img_feat', \
-            #     img_feat_bev.detach().cpu().numpy())
-            
-            # np.save('/home/kiki/jq/lss/bevfusion/visual/fuse_feat', \
-            #     batch_dict['spatial_features'].detach().cpu().numpy())
+       
+        batch_dict = self.dense_head(spatial_feature_2d, gt_boxes_)
         
-            
-            
-        # feat_fuse = torch.cat([batch_dict['spatial_features'], img_feat_bev], dim=1)
-        # batch_dict['spatial_features'] = feat_fuse
-            
-            
-        self.decoder["backbone"](batch_dict)
-        self.dense_head(batch_dict)
+        # convert [y,x] -> [x,y]
+        # feats = batch_dict['spatial_features_2d'].permute(0,1,3,2).contiguous()
+        # pred_dict = self.dense_head(feats, metas)
+        
     
+        # if self.training:
+        #     outputs = {}
+        #     losses = self.dense_head.loss(gt_bboxes_3d, gt_labels_3d, pred_dict)
+            
+        #     for name, val in losses.items():
+        #         if val.requires_grad:
+        #             outputs[f"loss/{name}"] = val * self.loss_scale
+        #         else:
+        #             outputs[f"stats/{name}"] = val
+        #     return outputs
+        
+        # else:
+        #     outputs = [{} for _ in range(batch_size)]
+        #     bboxes = self.dense_head.get_bboxes(pred_dict, metas)
+        #     for k, (boxes, scores, labels) in enumerate(bboxes):
+        #         outputs[k].update(
+        #             {
+        #                 "boxes_3d": boxes.to("cpu"),
+        #                 "scores_3d": scores.cpu(),
+        #                 "labels_3d": labels.cpu(),
+        #             }
+        #         )
+                
+        #     return outputs
+        
         if self.training:
             losses, tb_dict = self.get_training_loss(batch_dict)
             for key in tb_dict.keys():
@@ -240,8 +256,8 @@ class BEVAttn(Base3DFusionModel):
             final_boxes = batch_dict['final_box_dicts']
             for k, final_box in enumerate(final_boxes):
                 boxes = final_box['pred_boxes']
-                boxes = boxes[:, [0, 1, 2, 4, 3, 5, 6, 7, 8]]
-                boxes[:, 6] = -boxes[:, 6] - torch.pi/2
+                # boxes = boxes[:, [0, 1, 2, 4, 3, 5, 6, 7, 8]]
+                # boxes[:, 6] = -boxes[:, 6] - torch.pi/2
                 boxes = LiDARInstance3DBoxes(boxes, box_dim=boxes.shape[-1])
                 scores = final_box['pred_scores']
                 labels = final_box['pred_labels']-1
@@ -258,9 +274,14 @@ class BEVAttn(Base3DFusionModel):
     def get_training_loss(self,batch_dict):
         
         loss_trans, tb_dict = batch_dict['loss'], batch_dict['tb_dict']
+        new_dict = dict()
+        for key in tb_dict.keys():
+            new_key = key.replace('loss', 'stat')
+            new_dict.update({new_key:tb_dict[key]})
+            
         tb_dict = {
-            'loss_trans': loss_trans.item(),
-            **tb_dict
+            'loss_trans': loss_trans,
+            **new_dict
         }
 
         loss = loss_trans

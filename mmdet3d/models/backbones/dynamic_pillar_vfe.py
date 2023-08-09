@@ -88,7 +88,7 @@ class DynamicPillarVFE(nn.Module):
     def get_output_feature_dim(self):
         return self.num_filters[-1]
 
-    def forward(self, points, batch_dict=None, **kwargs):
+    def forward(self, points, **kwargs):
         # points = batch_dict['points'] # (batch_idx, x, y, z, i, e)
 
         points_coords = torch.floor((points[:, [1,2]] - self.point_cloud_range[[0,1]]) / self.voxel_size[[0,1]]).int()
@@ -138,10 +138,10 @@ class DynamicPillarVFE(nn.Module):
 
         # return batch_dict
     
-        batch_dict = {}
-        batch_dict.update(pillar_features=features)
-        batch_dict.update(voxel_features=features)
-        batch_dict.update(voxel_coords=voxel_coords)
+        # batch_dict = {}
+        # batch_dict.update(pillar_features=features)
+        # batch_dict.update(voxel_features=features)
+        # batch_dict.update(voxel_coords=voxel_coords)
 
-        return batch_dict
+        return features, voxel_coords
     

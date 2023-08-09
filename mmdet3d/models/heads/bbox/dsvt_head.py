@@ -85,6 +85,8 @@ class DSVTHead(nn.Module):
         input_channels, predict_boxes_when_training=True,
     ):
         super(DSVTHead, self).__init__()
+        
+        self.fp16_enabled = False
 
         self.grid_size = np.array(grid_size)
         self.point_cloud_range = point_cloud_range
@@ -274,32 +276,33 @@ class DSVTHead(nn.Module):
 
         return res_layer
 
-    def forward(self, batch_dict):
-        feats = batch_dict['spatial_features_2d']
+    def forward(self, feats, gt_boxes):
+        # feats = batch_dict['spatial_features_2d']
         # convert [y,x] -> [x,y]
         feats = feats.permute(0,1,3,2).contiguous()
 
         res = self.predict(feats)
-        # if not self.training:
-        #     bboxes = self.get_bboxes(res)
-        #     batch_dict['final_box_dicts'] = bboxes
-        # else:
-        #     gt_boxes = batch_dict['gt_boxes']
-        #     gt_bboxes_3d = gt_boxes[...,:-1]
-        #     gt_labels_3d =  gt_boxes[...,-1].long() - 1
-        #     loss, tb_dict = self.loss(gt_bboxes_3d, gt_labels_3d, res)
-        #     batch_dict['loss'] = loss
-        #     batch_dict['tb_dict'] = tb_dict
+        batch_dict = {}
+        if not self.training:
+            bboxes = self.get_bboxes(res)
+            batch_dict['final_box_dicts'] = bboxes
+        else:
+            # gt_boxes = batch_dict['gt_boxes']
+            gt_bboxes_3d = gt_boxes[...,:-1]
+            gt_labels_3d =  gt_boxes[...,-1].long() - 1
+            loss, tb_dict = self.loss(gt_bboxes_3d, gt_labels_3d, res)
+            batch_dict['loss'] = loss
+            batch_dict['tb_dict'] = tb_dict
 
-        gt_boxes = batch_dict['gt_boxes']
-        gt_bboxes_3d = gt_boxes[...,:-1]
-        gt_labels_3d =  gt_boxes[...,-1].long() - 1
-        loss, tb_dict = self.loss(gt_bboxes_3d, gt_labels_3d, res)
-        batch_dict['loss'] = loss
-        batch_dict['tb_dict'] = tb_dict
+        # gt_boxes = batch_dict['gt_boxes']
+        # gt_bboxes_3d = gt_boxes[...,:-1]
+        # gt_labels_3d =  gt_boxes[...,-1].long() - 1
+        # loss, tb_dict = self.loss(gt_bboxes_3d, gt_labels_3d, res)
+        # batch_dict['loss'] = loss
+        # batch_dict['tb_dict'] = tb_dict
         
-        bboxes = self.get_bboxes(res)
-        batch_dict['final_box_dicts'] = bboxes
+        # bboxes = self.get_bboxes(res)
+        # batch_dict['final_box_dicts'] = bboxes
         
         return batch_dict
 

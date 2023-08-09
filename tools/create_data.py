@@ -28,9 +28,9 @@ def nuscenes_data_prep(
     """
     if load_augmented is None:
         # otherwise, infos must have been created, we just skip.
-        nuscenes_converter.create_nuscenes_infos(
-            root_path, info_prefix, version=version, max_sweeps=max_sweeps
-        )
+        # nuscenes_converter.create_nuscenes_infos(
+        #     root_path, info_prefix, version=version, max_sweeps=max_sweeps
+        # )
 
         if version == "v1.0-test":
             info_test_path = osp.join(root_path, f"{info_prefix}_infos_test.pkl")
@@ -41,16 +41,16 @@ def nuscenes_data_prep(
         info_val_path = osp.join(root_path, f"{info_prefix}_infos_val.pkl")
         # nuscenes_converter.export_2d_annotation(root_path, info_train_path, version=version)
         # nuscenes_converter.export_2d_annotation(root_path, info_val_path, version=version)
-        # '''
+
         
-    # create_groundtruth_database(
-    #     dataset_name,
-    #     root_path,
-    #     info_prefix,
-    #     f"{out_dir}/{info_prefix}_infos_val.pkl",
-    #     load_augmented=load_augmented,
-    # )
-    # '''
+    create_groundtruth_database(
+        dataset_name,
+        root_path,
+        info_prefix,
+        f"{out_dir}/{info_prefix}_infos_train.pkl",
+        load_augmented=load_augmented,
+    )
+    
 
 
 parser = argparse.ArgumentParser(description="Data converter arg parser")

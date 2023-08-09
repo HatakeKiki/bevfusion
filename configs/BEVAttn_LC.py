@@ -35,30 +35,15 @@ voxel_size=[0.075, 0.075, 0.2]
 sparse_shape=[1440, 1440, 41]
 image_size=[256, 704]
 
-# augment3d=dict(
-#   scale=[0.9, 1.1],
-#   rotate=[-0.78539816, 0.78539816],
-#   translate=0.5,
-# )
-
-# augment2d=dict(
-#   resize=[[0.38, 0.55], [0.48, 0.48]],
-#   rotate=[-5.4, 5.4],
-#   gridmask=dict(
-#     prob=0.0,
-#     fixed_prob=True,
-#   )
-# )
-
 augment3d=dict(
-  scale=[0.9, 0.9],
-  rotate=[-0.78539816, -0.78539816],
-  translate=0,
+  scale=[0.9, 1.1],
+  rotate=[-0.78539816, 0.78539816],
+  translate=0.5,
 )
 
 augment2d=dict(
-  resize=[[0.38, 0.38], [0.48, 0.48]],
-  rotate=[-5.4, -5.4],
+  resize=[[0.38, 0.55], [0.48, 0.48]],
+  rotate=[-5.4, 5.4],
   gridmask=dict(
     prob=0.0,
     fixed_prob=True,
@@ -101,6 +86,14 @@ train_pipeline=[
       load_augmented=load_augmented,
     ),
     dict(
+      type='LoadGTPointsFromFile',
+      coord_type='LIDAR',
+      load_dim=load_dim,
+      use_dim=use_dim,
+      reduce_beams=reduce_beams,
+      load_augmented=load_augmented,
+    ),
+    dict(
       type='LoadAnnotations3D',
       with_bbox_3d=True,
       with_label_3d=True,
@@ -122,9 +115,9 @@ train_pipeline=[
       trans_lim=augment3d['translate'],
       is_train=True,
     ),
-    # dict(
-    #   type='RandomFlip3D',
-    # ),
+    dict(
+      type='RandomFlip3D',
+    ),
     dict(
       type='PointsRangeFilter',
       point_cloud_range=point_cloud_range,
@@ -224,7 +217,7 @@ test_pipeline=[
     ),
     dict(
       type='Collect3D',
-      keys=['img', 'points', 'gt_bboxes_3d', 'gt_labels_3d', 'points_single'],
+      keys=['img', 'points', 'gt_bboxes_3d', 'gt_labels_3d'],
       meta_keys=['camera_intrinsics',
                  'camera2ego',
                  'lidar2ego',
@@ -238,14 +231,14 @@ test_pipeline=[
 ]
 
 data=dict(
-  samples_per_gpu=1,
+  samples_per_gpu=4,
   workers_per_gpu=4,
   train=dict(
     type='CBGSDataset',
     dataset=dict(
       type=dataset_type,
       dataset_root=dataset_root,
-      ann_file=dataset_root + "nuscenes_infos_val.pkl", #
+      ann_file=dataset_root + "nuscenes_infos_train.pkl", #
       pipeline=train_pipeline,
       object_classes=object_classes,
       map_classes=None,
@@ -269,7 +262,7 @@ data=dict(
   test=dict(
     type=dataset_type,
     dataset_root=dataset_root,
-    ann_file=dataset_root + "prediction.pkl",
+    ann_file=dataset_root + "nuscenes_infos_val.pkl",
     pipeline=test_pipeline,
     object_classes=object_classes,
     map_classes=None,
@@ -288,6 +281,7 @@ evaluation=dict(
 model=dict(
   type='BEVAttnV2',
   mult_feat=True, #
+  return_cl_loss=True,
   encoders=dict(
     camera=dict(
       backbone=dict(

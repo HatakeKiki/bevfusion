@@ -261,9 +261,10 @@ def create_groundtruth_database(
         if database_save_path is None:
             database_save_path = osp.join(data_path, f"{info_prefix}_gt_database_virtual")
         if db_info_save_path is None:
-            db_info_save_path = osp.join(data_path, f"{info_prefix}_dbinfos_val_virtual.pkl")
+            db_info_save_path = osp.join(data_path, f"{info_prefix}_dbinfos_virtual.pkl")
     mmcv.mkdir_or_exist(database_save_path)
-    all_db_infos = dict()
+    # all_db_infos = dict()
+    all_db_infos = []
     if with_mask:
         coco = COCO(osp.join(data_path, mask_anno_path))
         imgIds = coco.getImgIds()
@@ -292,10 +293,7 @@ def create_groundtruth_database(
             difficulty = annos["difficulty"]
 
         num_obj = gt_boxes_3d.shape[0]
-        import copy
-        gt_boxes_3d_bottom = copy.deepcopy(gt_boxes_3d)
-        gt_boxes_3d_bottom[:, 2] -= gt_boxes_3d_bottom[:, 5]/2
-        point_indices = box_np_ops.points_in_rbbox(points, gt_boxes_3d_bottom)
+        point_indices = box_np_ops.points_in_rbbox(points, gt_boxes_3d, origin=(0.5, 0.5, 0.5))
 
         if with_mask:
             # prepare masks
@@ -339,13 +337,6 @@ def create_groundtruth_database(
             # save point clouds and image patches for each object
             gt_points = points[point_indices[:, i]]
             gt_points[:, :3] -= gt_boxes_3d[i, :3]
-            '''
-            print('===================')
-            print(gt_boxes_3d[i])
-            print(gt_boxes_3d_bottom[i])
-            print(gt_points.shape)
-            print(points.shape)
-            '''
 
             if with_mask:
                 if object_masks[i].sum() == 0 or not valid_inds[i]:

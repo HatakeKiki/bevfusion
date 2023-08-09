@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from math import ceil
+from mmcv.runner import auto_fp16
 
 from mmdet3d.models.utils.dsvt_utils import get_window_coors, get_inner_win_inds_cuda, get_pooling_index, get_continous_inds
 from mmdet3d.models.utils.dsvt_utils import PositionEmbeddingLearned
@@ -67,8 +68,11 @@ class DSVTInputLayer(nn.Module):
                         block_posembed_layers.append(PositionEmbeddingLearned(input_dim, self.d_model[i]))
                     stage_posembed_layers.append(block_posembed_layers)
                 self.posembed_layers.append(stage_posembed_layers)
-       
-    def forward(self, batch_dict):
+                
+        self.fp16_enabled = False
+    
+    @auto_fp16(apply_to=("voxel_feats",))   
+    def forward(self, voxel_feats, voxel_coors):
         '''
         Args:
             bacth_dict (dict): 
@@ -97,8 +101,8 @@ class DSVTInputLayer(nn.Module):
                     Shape of (N_{i}, downsample_stride[i-1].prob(), d_moel[i-1]), where prob() returns the product of all elements.
                 - ...
         '''
-        voxel_feats = batch_dict['voxel_features']
-        voxel_coors = batch_dict['voxel_coords'].long()
+        # voxel_feats = batch_dict['voxel_features']
+        # voxel_coors = batch_dict['voxel_coords'].long()
 
         voxel_info = {}
         voxel_info['voxel_feats_stage0'] = voxel_feats.clone()

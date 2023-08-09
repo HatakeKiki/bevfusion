@@ -145,11 +145,7 @@ class TransFusionHead(nn.Module):
                     cross_posembed=PositionEmbeddingLearned(2, hidden_channel),
                 )
             )
-        # self.roi_extract = roi_extract
-        # if roi_extract:
-        #     self._init_roi_extractor()
-        #     head_num = self.num_decoder_layers + 1
-        # else:
+
         head_num = self.num_decoder_layers
             
         # Prediction Head

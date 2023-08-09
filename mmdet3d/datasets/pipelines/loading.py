@@ -13,7 +13,7 @@ from mmdet.datasets.pipelines import LoadAnnotations
 
 from .loading_utils import load_augmented_point_cloud, reduce_LiDAR_beams
 import cv2
-
+import torch
 
 @PIPELINES.register_module()
 class LoadMultiViewImageFromFiles:
@@ -453,7 +453,7 @@ class LoadPointsFromFile:
             points, points_dim=points.shape[-1], attribute_dims=attribute_dims
         )
         results["points"] = points
-        results['points_single'] = points
+        # results['points_single'] = points
 
         return results
 
@@ -583,5 +583,100 @@ class LoadAnnotations3D(LoadAnnotations):
             results = self._load_labels_3d(results)
         if self.with_attr_label:
             results = self._load_attr_labels(results)
+
+        return results
+
+@PIPELINES.register_module()
+class LoadGTPointsFromFile(LoadPointsFromFile):
+    """Load Points From File.
+
+    Load sunrgbd and scannet points from file.
+
+    Args:
+        coord_type (str): The type of coordinates of points cloud.
+            Available options includes:
+            - 'LIDAR': Points in LiDAR coordinates.
+            - 'DEPTH': Points in depth coordinates, usually for indoor dataset.
+            - 'CAMERA': Points in camera coordinates.
+        load_dim (int): The dimension of the loaded points.
+            Defaults to 6.
+        use_dim (list[int]): Which dimensions of the points to be used.
+            Defaults to [0, 1, 2]. For KITTI dataset, set use_dim=4
+            or use_dim=[0, 1, 2, 3] to use the intensity dimension.
+        shift_height (bool): Whether to use shifted height. Defaults to False.
+        use_color (bool): Whether to use color features. Defaults to False.
+    """
+
+    def __init__(
+        self,
+        coord_type,
+        load_dim=6,
+        use_dim=[0, 1, 2],
+        shift_height=False,
+        use_color=False,
+        load_augmented=None,
+        reduce_beams=None,
+    ):
+        super().__init__(coord_type, load_dim, use_dim, 
+                       shift_height=shift_height, 
+                       use_color=use_color, 
+                       load_augmented=load_augmented, 
+                       reduce_beams=reduce_beams)
+
+    def __call__(self, results):
+        """Call function to load points data from file.
+
+        Args:
+            results (dict): Result dict containing point clouds data.
+
+        Returns:
+            dict: The result dict containing the point clouds data. \
+                Added key and value are described below.
+
+                - points (:obj:`BasePoints`): Point clouds data.
+        """
+        lidar_paths = results["gt_samples"]
+        points_all = []
+        for lidar_path, gt_box in zip(lidar_paths, results['gt_samples_bboxes']):
+            lidar_path = 'data/nuscenes/' + lidar_path
+            points = self._load_points(lidar_path)
+            points = points.reshape(-1, self.load_dim)
+            # TODO: make it more general
+            if self.reduce_beams and self.reduce_beams < 32:
+                points = reduce_LiDAR_beams(points, self.reduce_beams)
+            points = points[:, self.use_dim]
+            attribute_dims = None
+
+            if self.shift_height:
+                floor_height = np.percentile(points[:, 2], 0.99)
+                height = points[:, 2] - floor_height
+                points = np.concatenate(
+                    [points[:, :3], np.expand_dims(height, 1), points[:, 3:]], 1
+                )
+                attribute_dims = dict(height=3)
+
+            if self.use_color:
+                assert len(self.use_dim) >= 6
+                if attribute_dims is None:
+                    attribute_dims = dict()
+                attribute_dims.update(
+                    dict(
+                        color=[
+                            points.shape[1] - 3,
+                            points.shape[1] - 2,
+                            points.shape[1] - 1,
+                        ]
+                    )
+                )
+                
+            points[:, :3] += gt_box[:3]
+            points_class = get_points_type(self.coord_type)
+            points = points_class(
+                points, points_dim=points.shape[-1], attribute_dims=attribute_dims
+            )
+
+            points_all.append(points)
+        
+        results['points_single'] = points.cat(points_all)
 
         return results

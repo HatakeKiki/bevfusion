@@ -180,6 +180,7 @@ class Custom3DDataset(Dataset):
         Returns:
             dict: Testing data dict of the corresponding index.
         """
+        # index=200
         input_dict = self.get_data_info(index)
         self.pre_pipeline(input_dict)
         example = self.pipeline(input_dict)

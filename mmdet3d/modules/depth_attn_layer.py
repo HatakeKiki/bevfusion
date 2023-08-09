@@ -166,6 +166,6 @@ class DepthAttnLayer(nn.Module):
         attn_output = self.norm(attn_output)
         
         if keep_weight:
-            return attn_output, attn_output_weights_sm
+            return attn_output, attn_output_weights
         else:
             return attn_output

@@ -23,7 +23,7 @@ runner=dict(
 
 dataset_type='NuScenesDataset'
 dataset_root='data/nuscenes/'
-gt_paste_stop_epoch=-1
+gt_paste_stop_epoch=16
 reduce_beams=32
 load_dim=5
 use_dim=5
@@ -47,12 +47,6 @@ augment3d=dict(
   rotate=[-0.78539816, 0.78539816],
   translate=0.5,
 )
-
-# augment3d=dict(
-#   scale=[1.0, 1.0],
-#   rotate=[0, 0],
-#   translate=0.0,
-# )
 
 train_pipeline=[
     dict(
@@ -383,12 +377,134 @@ model=dict(
       ),
     )
   )
+# dense_head=dict(
+#     type='TransFusionHead',
+#     num_proposals=200,
+#     auxiliary=True,
+#     in_channels=384, #,
+#     hidden_channel=128,
+#     num_classes=10,
+#     num_decoder_layers=1,
+#     num_heads=8,
+#     nms_kernel_size=3,
+#     ffn_channel=256,
+#     dropout=0.0, # original in bevfusion: 0.1
+#     bn_momentum=0.1,
+#     activation='relu',
+#     train_cfg=dict(
+#       dataset='nuScenes',
+#       point_cloud_range=point_cloud_range,
+#       grid_size=[360, 360, 1],
+#       voxel_size=[0.3, 0.3, 8.0],
+#       out_size_factor=2, # 
+#       gaussian_overlap=0.1,
+#       min_radius=2,
+#       pos_weight=-1,
+#       code_weights=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.2, 0.2],
+#       assigner=dict(
+#         type='HungarianAssigner3D',
+#         iou_calculator=dict(
+#           type='BboxOverlaps3D',
+#           coordinate='lidar',
+#         ),
+#         cls_cost=dict(
+#           type='FocalLossCost',
+#           gamma=2.0,
+#           alpha=0.25,
+#           weight=0.15,
+#         ),
+#         reg_cost=dict(
+#           type='BBoxBEVL1Cost',
+#           weight=0.25,
+#         ),
+#         iou_cost=dict(
+#           type='IoU3DCost',
+#           weight=0.25,
+#         ),
+#       ),
+#     ),
+#     test_cfg=dict(
+#       dataset='nuScenes',
+#       grid_size=[360, 360, 1],
+#       out_size_factor=2,
+#       voxel_size=[0.3, 0.3],
+#       pc_range=point_cloud_range[:2],
+#       nms_type=None,
+#     ),
+#     common_heads=dict(
+#       center=[2, 2],
+#       height=[1, 2],
+#       dim=[3, 2],
+#       rot=[2, 2],
+#       vel=[2, 2],
+#     ),
+#     bbox_coder=dict(
+#       type='TransFusionBBoxCoder',
+#       pc_range=point_cloud_range[:2],
+#       post_center_range=[-61.2, -61.2, -10.0, 61.2, 61.2, 10.0],
+#       score_threshold=0.0,
+#       out_size_factor=2, #
+#       voxel_size=[0.3, 0.3],
+#       code_size=10,
+#     ),
+#     loss_cls=dict(
+#       type='FocalLoss',
+#       use_sigmoid=True,
+#       gamma=2.0,
+#       alpha=0.25,
+#       reduction='mean',
+#       loss_weight=1.0,
+#     ),
+#     loss_heatmap=dict(
+#       type='GaussianFocalLoss',
+#       reduction='mean',
+#       loss_weight=1.0,
+#     ),
+#     loss_bbox=dict(
+#       type='L1Loss',
+#       reduction='mean',
+#       loss_weight=0.25,
+#     ),
+#   ),
 )
 
 
 # ## TODO: renew training config
 # load_from='pretrained/dsvt_bev_nus.pth'
 load_from=None
+
+lr_config=dict(
+  policy='cyclic',
+  # target_ratio=5.0,
+  cyclic_times=1,
+  step_ratio_up=0.4,
+)
+
+# lr_config = dict(
+#     policy='OneCycle',
+#     max_lr=0.0025,
+#     pct_start=0.4,
+#     div_factor=10,
+# )
+
+momentum_config=dict(
+  policy='cyclic',
+  cyclic_times=1,
+  step_ratio_up=0.4,
+)
+  
+# optimizer=dict(
+#   type='AdamW',
+#   lr=0.0005,
+#   weight_decay=0.05,
+# )
+
+optimizer=dict(
+  type='Adam',
+  lr=0.0005,
+  weight_decay=0.05,
+  betas=(0.9, 0.99)
+)
 
 fp16=dict(
   loss_scale=dict(
@@ -402,26 +518,4 @@ optimizer_config=dict(
     max_norm=35,
     norm_type=2,
   )
-)
-
-# lr_config=dict(
-#   policy='cyclic',
-# )
-
-lr_config = dict(
-    policy='OneCycle',
-    max_lr=0.0025,
-    pct_start=0.4,
-    div_factor=10,
-)
-
-momentum_config=dict(
-  policy='OneCycle',
-  pct_start=0.4,
-)
-  
-optimizer=dict(
-  type='AdamW',
-  lr=0.0025,
-  weight_decay=0.05,
 )

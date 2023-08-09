@@ -454,7 +454,7 @@ class ObjectPaste:
         Returns:
             np.ndarray: Points with those in the boxes removed.
         """
-        masks = box_np_ops.points_in_rbbox(points.coord.numpy(), boxes)
+        masks = box_np_ops.points_in_rbbox(points.coord.numpy(), boxes, origin=(0.5, 0.5, 0.5))
         points = points[np.logical_not(masks.any(-1))]
         return points
 

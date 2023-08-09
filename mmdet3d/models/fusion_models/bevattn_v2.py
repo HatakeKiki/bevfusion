@@ -8,6 +8,8 @@ from torch.cuda.amp.autocast_mode import autocast
 from mmcv.cnn.bricks.activation import build_activation_layer
 from mmdet.core import multi_apply
 import numpy as np
+from mmdet3d.utils import fix_bn
+from mmdet3d.core.bbox import box_np_ops as box_np_ops
 
 
 from mmdet3d.models.builder import (
@@ -43,17 +45,21 @@ class BEVAttnV2(BEVFusion):
         super().__init__(encoders, decoder, heads, fuser, **kwargs)
         
         self.with_mask = kwargs.get('with_mask', False)
+        if 'camera' in encoders.keys():
+            self.img_downsample_factor = encoders['camera']['vtransform']['img_downsample_factor']
             
         
+        self.sparse_voxelize = Voxelization(**encoders["lidar"]["voxelize"])
+        self.sparse_voxelize.voxel_size=[0.6, 0.6, 10]
         self.mult_feat = mult_feat
         self.return_cl_loss = return_cl_loss
         # self.activate = nn.ReLU(inplace=True)
         # self.fuser = None
         
-        if perspective_head is not None:
-            self.perspective_head = build_head_2d(perspective_head)
-        else:
-            self.perspective_head = None
+        # if perspective_head is not None:
+        #     self.perspective_head = build_head_2d(perspective_head)
+        # else:
+        #     self.perspective_head = None
         # if heads_extra:
         #     self.heads_extra = nn.ModuleDict()
         #     for name in heads:
@@ -83,6 +89,8 @@ class BEVAttnV2(BEVFusion):
         gt_bboxes_3d=None,
         gt_labels_3d=None,
         pts_ind=None,
+        sparse_bev_ind=None,
+        sparse_per_ind=None,
         **kwargs,
     ) -> torch.Tensor:
         
@@ -94,12 +102,12 @@ class BEVAttnV2(BEVFusion):
         x = self.encoders["camera"]["backbone"](x)
         x = self.encoders["camera"]["neck"](x)
         
-        if self.perspective_head is not None:
-            persp_pred = self.perspective_head(x)
-            _, _, centerness = persp_pred
-        else:
-            centerness = None
-            persp_pred = None
+        # if self.perspective_head is not None:
+        #     persp_pred = self.perspective_head(x)
+        #     _, _, centerness = persp_pred
+        # else:
+        #     centerness = None
+        #     persp_pred = None
         
         if not isinstance(x, torch.Tensor) and not self.mult_feat:
             feat_imgs = [x[0]]
@@ -107,14 +115,14 @@ class BEVAttnV2(BEVFusion):
             feat_imgs = x
         
         
-        if self.return_cl_loss and self.training:
-            loss_cl = dict()
-            depth_gt = self.get_depth_gt(points_single, img, 
-                                        img_aug_matrix, 
-                                        lidar_aug_matrix, 
-                                        lidar2image)
+        # if self.return_cl_loss and self.training:
+        #     loss_cl = dict()
+        #     depth_gt = self.get_depth_gt(points_single, img, 
+        #                                 img_aug_matrix, 
+        #                                 lidar_aug_matrix, 
+        #                                 lidar2image)
             
-        feat_bev, weights = self.encoders["camera"]["vtransform"](
+        feat_bev, loss_cl = self.encoders["camera"]["vtransform"](
             feat_imgs=feat_imgs,
             feat_pts=feat_pts,
             cam_intrinsic=camera_intrinsics,
@@ -122,29 +130,32 @@ class BEVAttnV2(BEVFusion):
             img_aug_matrix=img_aug_matrix,
             lidar_aug_matrix=lidar_aug_matrix,
             lidar2image=lidar2image,
-            scores=centerness,
             pts_ind=pts_ind,
+            sparse_bev_ind=sparse_bev_ind,
+            sparse_per_ind=sparse_per_ind,
             **kwargs,
         )
+        
+        return feat_bev, loss_cl
         
         # if self.return_cl_loss and self.training:
         #     loss = self.encoders["camera"]["vtransform"].get_cl_loss(depth_gt, weights, int(img_h / H))
         #     loss_cl.update({'loss_cl_%d' % img_downsample_factor:loss})
         
-        if self.return_cl_loss and self.training:
-            return feat_bev, persp_pred, loss_cl
-        else:
-            return feat_bev, persp_pred
+        # if self.return_cl_loss and self.training:
+        #     return feat_bev, persp_pred, loss_cl
+        # else:
+        #     return feat_bev, persp_pred
     
     @force_fp32()
-    def get_depth_gt(self, points, img, img_aug_matrix, lidar_aug_matrix, lidar2image):
-        batch_size, N, C, img_h, img_w = img.size()
+    def get_per_ind(self, points, img, img_aug_matrix, lidar_aug_matrix, lidar2image, downsample_list):
+        batch_size, N, _, img_h, img_w = img.size()
             
         # [bs, N, img_h, img_w]
-        depth_gt = torch.zeros(batch_size, N, img_h, img_w).to(
+        per_ind = torch.zeros((batch_size*N, img_h, img_w)).to(
             points[0].device
         )
-        
+        # np.save('visual/imgs', img.detach().cpu().numpy())
         for b in range(batch_size):
             cur_coords = points[b][:, :3]
             cur_img_aug_matrix = img_aug_matrix[b]
@@ -180,10 +191,20 @@ class BEVAttnV2(BEVFusion):
             )
             for c in range(on_img.shape[0]):
                 masked_coords = cur_coords[c, on_img[c]].long()
-                masked_dist = dist[c, on_img[c]]
-                depth_gt[b, c, masked_coords[:, 0], masked_coords[:, 1]] = masked_dist
-        
-        return depth_gt
+                # masked_dist = dist[c, on_img[c]]
+                per_ind[b*c + c, masked_coords[:, 0], masked_coords[:, 1]] = 1
+                # np.save('visual/masked_coords_%d' % c, masked_coords.detach().cpu().numpy())
+                
+        per_inds = []
+        with torch.no_grad():
+            for downsample in downsample_list:
+                downsample *= 8
+                max_pool = nn.MaxPool2d(kernel_size=(downsample, downsample), stride=(downsample, downsample))
+                per_inds.append(max_pool(per_ind.unsqueeze(1)).view(-1).to(torch.bool))
+                
+        per_inds = torch.cat(per_inds, dim=0)
+                    
+        return per_inds
     
     @auto_fp16(apply_to=("img", "points"))
     def forward_single(
@@ -218,7 +239,18 @@ class BEVAttnV2(BEVFusion):
 
         
         if "camera" in sensors:
-            tmp = self.extract_camera_features(
+            if self.return_cl_loss and self.training:
+                sparse_bev_ind = self.get_sparse_ind(points_single, pts_feat)
+                sparse_per_ind = self.get_per_ind(points_single, img, 
+                                                img_aug_matrix, 
+                                                lidar_aug_matrix, 
+                                                lidar2image,
+                                                self.img_downsample_factor)
+            else:
+                sparse_bev_ind = None
+                sparse_per_ind = None
+                
+            img_feat_bev, loss_cl = self.extract_camera_features(
                 img,
                 pts_feat,
                 camera2ego,
@@ -235,9 +267,9 @@ class BEVAttnV2(BEVFusion):
                 gt_bboxes_3d=gt_bboxes_3d,
                 gt_labels_3d=gt_labels_3d,
                 pts_ind=pts_ind,
+                sparse_bev_ind=sparse_bev_ind,
+                sparse_per_ind=sparse_per_ind,
             )
-
-            img_feat_bev, persp_pred = tmp
 
             features.append(img_feat_bev)
         
@@ -261,22 +293,8 @@ class BEVAttnV2(BEVFusion):
         #     x.detach().cpu().numpy())
             
         batch_size = x.shape[0]
-        
-        # x = pts_feat
         x = self.decoder["backbone"](x)
         x = self.decoder["neck"](x)
-        
-        
-        
-        # if self.fuser is not None:
-        #     x = [self.fuser([x[0], img_feat_bev])]
-            
-        # x = [img_feat_bev]
-            
-        # x = torch.cat([x[0], img_feat_bev], dim=1)
-        # else:
-        #     assert len(features) == 1, features
-        #     x = features[0]
         
         if self.training:
             outputs = {}
@@ -287,42 +305,53 @@ class BEVAttnV2(BEVFusion):
                     losses = head.loss(gt_bboxes_3d, gt_labels_3d, pred_dict)
                 else:
                     raise ValueError(f"unsupported head: {type}")
-            ## depth supervision
-            # if self.return_cl_loss:
+            # depth supervision
+            if self.return_cl_loss:
+                losses.update(loss_cl=loss_cl)
+            #     # np.save('visual/pts', points[0].detach().cpu().numpy())
+            #     # np.save('visual/pts_single', points_single[0].detach().cpu().numpy())
+            #     depth_gt = self.get_depth_gt(points_single, img, 
+            #                                 img_aug_matrix, 
+            #                                 lidar_aug_matrix, 
+            #                                 lidar2image)
+            #     for downsample, weight in zip(self.img_downsample_factor, weights):
+            #         loss = self.encoders["camera"]["vtransform"].get_cl_loss(depth_gt, weight, downsample)
+            #         loss_cl.update({'loss_cl_%d' % downsample :loss})
+        
             #     losses.update(loss_cl)
                 
             ## perspetive head     
-            if self.perspective_head is not None:
-                list_bboxes_2d = []
-                list_labels_2d = []
-                bboxes_2d, labels_2d = multi_apply(self.lidar2img, 
-                                                    gt_bboxes_3d, 
-                                                    gt_labels_3d, 
-                                                    lidar_aug_matrix,
-                                                    lidar2image,
-                                                    img_aug_matrix)
+            # if self.perspective_head is not None:
+            #     list_bboxes_2d = []
+            #     list_labels_2d = []
+            #     bboxes_2d, labels_2d = multi_apply(self.lidar2img, 
+            #                                         gt_bboxes_3d, 
+            #                                         gt_labels_3d, 
+            #                                         lidar_aug_matrix,
+            #                                         lidar2image,
+            #                                         img_aug_matrix)
                 
-                for i in range(batch_size):
-                    list_bboxes_2d += bboxes_2d[i]
-                    list_labels_2d += labels_2d[i]
+            #     for i in range(batch_size):
+            #         list_bboxes_2d += bboxes_2d[i]
+            #         list_labels_2d += labels_2d[i]
                     
-                if self.with_mask:
-                    # B, N, C, H, W =  img.shape
-                    # mask = mask.view(B * N, C, H, W)
-                    # mask =[self.mask_downsample(mask[:, 0, ...], down_factor=i).reshape(-1) for i in [8, 16]]
-                    mask = None
-                else:
-                    mask = None
+            #     if self.with_mask:
+            #         # B, N, C, H, W =  img.shape
+            #         # mask = mask.view(B * N, C, H, W)
+            #         # mask =[self.mask_downsample(mask[:, 0, ...], down_factor=i).reshape(-1) for i in [8, 16]]
+            #         mask = None
+            #     else:
+            #         mask = None
                     
                     
-                loss_perspective = self.perspective_head.loss(persp_pred[0], 
-                                                              persp_pred[1],
-                                                              persp_pred[2],
-                                                              list_bboxes_2d, 
-                                                              list_labels_2d,
-                                                              mask=mask,
-                                                              img_metas=None)
-                losses.update(loss_perspective)
+            #     loss_perspective = self.perspective_head.loss(persp_pred[0], 
+            #                                                   persp_pred[1],
+            #                                                   persp_pred[2],
+            #                                                   list_bboxes_2d, 
+            #                                                   list_labels_2d,
+            #                                                   mask=mask,
+            #                                                   img_metas=None)
+            #     losses.update(loss_perspective)
             
             # metas_align = {"lidar_aug_matrix": lidar_aug_matrix,
             #                 "lidar2image": lidar2image,
@@ -368,97 +397,36 @@ class BEVAttnV2(BEVFusion):
             
             return outputs
         
-    def lidar2img(self, 
-                  gt_bboxes_3d, 
-                  gt_labels_3d, 
-                    lidar_aug_matrix,
-                    lidar2image,
-                    img_aug_matrix):
-        
-        # Reverse LiDAR augmentation
-        corners = gt_bboxes_3d.corners.to(lidar_aug_matrix.device)
-        height = gt_bboxes_3d.height[:, None]
-        corners[..., -1] -= height.to(lidar_aug_matrix.device) / 2
-        num_bboxes = corners.shape[0]
-        
-        coords = torch.cat(
-            [corners.reshape(-1, 3), corners.new_ones(size=(num_bboxes*8, 1))], dim=-1
-        )
-        coords = coords @ torch.inverse(lidar_aug_matrix.T)
-        
-        # projection to image plane, then replay image augmentation
-        num_view = lidar2image.shape[0]
-        list_lidar2image = []
-        list_img_aug_matrix = []
-        list_coords = []
-        list_labels = []
+    def get_sparse_ind(self, points_single, spatial_features):
 
-        for i in range(num_view):
-            list_lidar2image.append(lidar2image[i, :])
-            list_img_aug_matrix.append(img_aug_matrix[i, :])
-            list_coords.append(coords)
-            list_labels.append(gt_labels_3d.to(lidar_aug_matrix.device))
+        ny, nx = spatial_features.shape[2:4]
+        batch_spatial_masks= []
         
-        list_bboxes_2d, list_labels_2d = multi_apply(self.lidar2img_single, list_coords, list_labels, list_lidar2image, list_img_aug_matrix)
-        
-        # on_img_count = torch.stack(list_on_img, dim=1)
-        # on_img_count = on_img_count.sum(dim=1).reshape(-1, 1)
+        for batch_idx in range(len(points_single)):
+            points = points_single[batch_idx][:, :3]
+            
+            # spatial mask for sparse bevfusion
+            spatial_mask = torch.zeros(
+                nx * ny,
+                dtype=torch.bool,
+                device=spatial_features.device)
+            
+            if points.shape[0] > 0:
+                points[:, 2] = 0
+                ret = self.sparse_voxelize(points.contiguous())
+                coord = ret[1]
 
-        # on_img_indices = torch.cat(list_on_img, dim=0)
-        
-        return list_bboxes_2d, list_labels_2d
+                indices = coord[:, 0] * ny + coord[:, 1]
+                indices = indices.type(torch.long)
+            
+                spatial_mask[indices] = True
+                
+            batch_spatial_masks.append(spatial_mask.reshape(nx, ny))
+        batch_spatial_masks= torch.stack(batch_spatial_masks, 0)
 
-    def lidar2img_single(self, coords, labels, lidar2image, img_aug_matrix):
-        
-        # lidar2image
-        coords = coords @ lidar2image.T
-        coords = coords.reshape(-1, 8, 4)
-        
-        indices = torch.all(coords[..., 2] > 0, dim=1)
-        # coords = coords[indices]
-        
-        coords = coords.reshape(-1, 4)
-        coords[:, 2] = torch.clamp(coords[:, 2], min=1e-5, max=1e4)
-        
-        # get 2d coords
-        # dist = coords[:, 2]
-        coords[:, 0] /= coords[:, 2]
-        coords[:, 1] /= coords[:, 2]
-        
-        # imgaug
-        coords = coords @ img_aug_matrix.T
-        coords = coords[..., :2].reshape(-1, 8, 2)
-        
-        
-        coords_2d = torch.stack([coords[:, :, 0].min(dim=1)[0].clamp(0),
-                                    coords[:, :, 1].min(dim=1)[0].clamp(0),
-                                    coords[:, :, 0].max(dim=1)[0].clamp(0, 704),
-                                    coords[:, :, 1].max(dim=1)[0].clamp(0, 256)], dim=1)
-        
-        on_img = (coords_2d[:, 2] > coords_2d[:, 0]) & (coords_2d[:, 3] > coords_2d[:, 1]) & indices
-        
-        labels_2d = labels[on_img]
-        coords_2d = coords_2d[on_img, :]
-        coords_2d[:, 2] = torch.max(coords_2d[:, 2], coords_2d[:, 0] + 0.01)
-        coords_2d[:, 3] = torch.max(coords_2d[:, 3], coords_2d[:, 1] + 0.01)
-        
-        
-        return coords_2d, labels_2d
+        return batch_spatial_masks
     
-    
-    def mask_downsample(self, mask, down_factor):
-        # mask_new = torch.ones((mask.shape[0], int(mask.shape[1]/down_factor), int(mask.shape[2]/down_factor)), device=mask.device, requires_grad=False)
-        # # mask_new = np.ones((mask.shape[0], int(mask.shape[1]/down_factor), int(mask.shape[2]/down_factor)))
-        # for i in range(mask_new.shape[1]):
-        #     for j in range(mask_new.shape[2]):
-        #         patch = mask[:, i*down_factor:(i+1)*down_factor, j*down_factor:(j+1)*down_factor]
-        #         patch = patch.reshape(mask_new.shape[0], -1)
-        #         sum_val = patch.sum(dim=1)
-        #         for idx in range(mask_new.shape[0]):
-        #             if sum_val[idx] < 1:
-        #                 mask_new[idx, i, j] = 0
-        with torch.no_grad():
-            bool_down_sample = nn.MaxPool2d(kernel_size=(down_factor, down_factor), stride=(down_factor, down_factor))
-            mask_new = bool_down_sample(mask)
-                    
-        return mask_new
+    def train(self, mode=True):
+        """Convert the model into training mode while keep layers freezed."""
+        super(BEVAttnV2, self).train(mode)
+        self.apply(fix_bn)
